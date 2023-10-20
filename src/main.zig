@@ -1,10 +1,8 @@
 const std = @import("std");
-const pngModels = @import("./models/pngModels.zig");
 const zlib = @cImport(@cInclude("zlib.h"));
-const pngDecoder = @import("./pngDecoder.zig");
-const IHDRtype = pngModels.IHDRs;
-// zig build-exe src/main.zig -O ReleaseFast -fstrip
-const theUnion = pngModels.chunkUnion;
+const pngDecoder = @import("./png/pngDecoder.zig");
+// fast !!!
+// zig build-exe src/main.zig -O ReleaseFast -fstrip -lc -lz
 pub fn main() !void {
     const gpa = std.heap.GeneralPurposeAllocator(.{
         .retain_metadata = true,
@@ -32,14 +30,4 @@ pub fn main() !void {
 
     const timeElapsed = std.time.microTimestamp() - startTime;
     std.debug.print("completed in {d} μs\n", .{timeElapsed});
-}
-
-fn findDataLengthLoop(buffer: []u8, offset: u32) u32 {
-    var i: u5 = 0;
-    var dataLength: u32 = 0;
-    while (i < 4) {
-        dataLength |= @as(u32, buffer[i + offset]) << (24 - 8 * i);
-        i += 1;
-    }
-    return dataLength;
 }

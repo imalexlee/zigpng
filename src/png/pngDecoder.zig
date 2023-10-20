@@ -1,5 +1,5 @@
 const std = @import("std");
-const pngModels = @import("./models/pngModels.zig");
+const pngModels = @import("./pngModels.zig");
 const zlib = @cImport(@cInclude("zlib.h"));
 
 const ChunkResponse = pngModels.ChunkReturn;
@@ -7,8 +7,7 @@ const ChunkResponse = pngModels.ChunkReturn;
 pub fn pngDecoder() type {
     return struct {
         const Self = @This();
-        idat_list: std.ArrayList(u8),
-        // idat_allocator: std.mem.Allocator,
+        idat_allocator: std.mem.Allocator,
 
         original_img_buffer: []u8,
         width: u32 = 0,
@@ -41,10 +40,8 @@ pub fn pngDecoder() type {
             const filter_method: u8 = buffer[27];
             const interlace_method: u8 = buffer[28];
 
-            const list = std.ArrayList(u8).init(idatAllocator);
-
             return Self{
-                .idat_list = list,
+                .idat_allocator = idatAllocator,
                 .original_img_buffer = buffer,
                 .height = height,
                 .width = width,
@@ -82,13 +79,15 @@ pub fn pngDecoder() type {
 
             switch (data_type) {
                 // IDAT
-                0b01001001_01000100_01000001_01010100 => try self.handleIDAT(offset + 8, data_length),
-                // pHYs
+                0b01001001_01000100_01000001_01010100 => try self.handleIDATuncompress(offset + 8, data_length),
+                // TODO: pHYs
                 // 0b11010100_01001011_01001000_01010101 => try self.handlePHYs(offset + 8, data_length),
-                // sRGB
+                // TODO: sRGB
                 //  0b11010100_01010011_01010011_01010100 => try self.handleSRGB(offset + 8, data_length),
-                // gAMA
+                // TODO: gAMA
                 // 0b11001010_01000001_01000001_01000111 => try self.handleGAMA(offset + 8, data_length),
+                // TODO: IEND
+                // 0b01001001_01000101_01001110_01000100 => try self.handleIEND(offset + 8, data_length),
 
                 // char char char char
                 else => std.debug.print("unhandled chunk {c}{c}{c}{c}\n", .{
@@ -110,79 +109,17 @@ pub fn pngDecoder() type {
         }
 
         // appends an entire IDAT chunk to the idat list
-        fn handleIDAT(self: *Self, data_offset: u32, data_length: u32) !void {
-            // std.debug.print("handle IDAT called with length {d}\n", .{data_length});
-            // var zlib_allocator = std.heap.GeneralPurposeAllocator(.{}){};
-
-            // // const cbruh = clib.compress()
-
-            // const zlib = std.compress.zlib;
-            // // compressed data
+        fn handleIDATuncompress(self: *Self, data_offset: u32, data_length: u32) !void {
             const data_buffer = self.original_img_buffer[data_offset..data_length];
-            // const out_buffer =
-            _ = try self.idat_list.appendSlice(data_buffer);
-            // }
-            // std.debug.print("number of decompressed bytes: {d}", .{bytes_num});
-            // const alloc_fn = zlib.alloc_func;
-            // const alloc_func = ?*const fn (?*anyopaque, c_uint, c_uint) callconv(.C) ?*anyopaque;
+            // TODO: handle other color types. currently hardcoding 4 to stand for color type 6 (R,G,B,A)
+            var uncompressed_len: c_ulong = ((self.height * self.width) * 4) + self.height;
+            var uncompressed_buf = try self.idat_allocator.alloc(u8, uncompressed_len);
+            _ = zlib.uncompress(uncompressed_buf.ptr, &uncompressed_len, data_buffer.ptr, data_length);
 
-            // const data_ptr: [*c]u8 = data_buffer.ptr;
-            const buffer_chunk_size = 1024;
-
-            var temp_buffer: [buffer_chunk_size]u8 = undefined;
-            var out_buf = temp_buffer[0..];
-            var strm = zlib.z_stream{
-                .zalloc = null,
-                .@"opaque" = null,
-                .zfree = null,
-                .avail_in = data_length,
-                .next_in = data_buffer.ptr,
-                .avail_out = buffer_chunk_size,
-                .next_out = out_buf.ptr,
-            };
-            // look back at zlib docs about the double while loops.
-            // outer one looking for ret == Z_STREAM_END
-            _ = zlib.inflateInit(&strm);
-            var ret: c_int = 0;
-            while (ret == 0) {
-                ret = zlib.inflate(&strm, zlib.Z_FULL_FLUSH);
-
-                switch (ret) {
-                    zlib.Z_MEM_ERROR => {
-                        _ = zlib.inflateEnd(&strm);
-                        return;
-                    },
-                    else => std.debug.print("ret: {any}\n", .{ret}),
-                }
-            }
-
-            // for (out_buf, 0..) |val, i| {
+            // for (uncompressed_buf, 0..) |val, i| {
             //     std.debug.print("val at {d}: {any}\n", .{ i, val });
             // }
         }
-
-        // pub fn decompressIDAT(self: *Self) !void {
-        //     var zlib_allocator = std.heap.GeneralPurposeAllocator(.{}){};
-        //     const zlib = std.compress.zlib;
-        //     var fb_reader = std.io.fixedBufferStream(self.idat_list.items);
-        //     var reader = fb_reader.reader();
-        //     var decompress_stream = try zlib.decompressStream(zlib_allocator.backing_allocator, reader);
-        //     defer decompress_stream.deinit();
-        //     var buffer: [1024]u8 = undefined;
-        //     var bytesRead: usize = 0;
-        //     while (true) {
-        //         const bytes_num = try decompress_stream.read(&buffer);
-
-        //         std.debug.print("total bytes_num {d}\n", .{bytesRead});
-        //         if (bytes_num == 0) break;
-
-        //         // Now buffer[0..bytesRead] contains some decompressed data
-        //         // Process it as needed
-        //     }
-        //     //const bytesRead = try decompress_stream.read(self.idat_list.items);
-        //     std.debug.print("decompressed_data has length {d}\n", .{decompress_stream.});
-        //     std.debug.print("idat_list length {d}\n", .{self.idat_list.items.len});
-        // }
 
         pub fn print(self: *Self) void {
             std.debug.print("width {any}\n", .{self.width});
@@ -190,10 +127,6 @@ pub fn pngDecoder() type {
             std.debug.print("bit_depth {any}\n", .{self.bit_depth});
             std.debug.print("color_type {any}\n", .{self.color_type});
             std.debug.print("compression_method {any}\n", .{self.compression_method});
-            std.debug.print("bytes in idat_list: {d}\n", .{self.idat_list.items.len});
-            // for (0..self.idat_list.items.len) |i| {
-            //     std.debug.print("idat_list {d} {d}\n", .{ i, self.idat_list.items[i] });
-            // }
         }
     };
 }
