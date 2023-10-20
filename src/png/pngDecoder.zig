@@ -1,8 +1,6 @@
 const std = @import("std");
-const pngModels = @import("./pngModels.zig");
+const models = @import("./pngModels.zig");
 const zlib = @cImport(@cInclude("zlib.h"));
-
-const ChunkResponse = pngModels.ChunkReturn;
 
 pub fn pngDecoder() type {
     return struct {
@@ -10,14 +8,11 @@ pub fn pngDecoder() type {
         idat_allocator: std.mem.Allocator,
 
         original_img_buffer: []u8,
-        width: u32 = 0,
-        height: u32 = 0,
+        IHDR: models.IHDR,
+        pHYS: ?models.pHYs = null,
+        bKGD: ?models.bKGD = null,
+        sRGB: ?models.sRGB = null,
         file_size: u64 = 0,
-        bit_depth: u8 = 0,
-        color_type: u8 = 0,
-        compression_method: u8 = 0,
-        filter_method: u8 = 0,
-        interlace_method: u8 = 0,
 
         /// initialize the list allocator to store IDAT chunks and the buffer holding the read image file
         ///
@@ -43,13 +38,18 @@ pub fn pngDecoder() type {
             return Self{
                 .idat_allocator = idatAllocator,
                 .original_img_buffer = buffer,
-                .height = height,
-                .width = width,
-                .bit_depth = bit_depth,
-                .color_type = color_type,
-                .compression_method = compression_method,
-                .filter_method = filter_method,
-                .interlace_method = interlace_method,
+                .IHDR = .{
+                    .height = height,
+                    .width = width,
+                    .bit_depth = bit_depth,
+                    .color_type = color_type,
+                    .compression_method = compression_method,
+                    .filter_method = filter_method,
+                    .interlace_method = interlace_method,
+                },
+                // .pHYS = .{
+
+                // }
                 .file_size = file_size,
             };
         }
@@ -80,14 +80,16 @@ pub fn pngDecoder() type {
             switch (data_type) {
                 // IDAT
                 0b01001001_01000100_01000001_01010100 => try self.handleIDATuncompress(offset + 8, data_length),
-                // TODO: pHYs
-                // 0b11010100_01001011_01001000_01010101 => try self.handlePHYs(offset + 8, data_length),
-                // TODO: sRGB
-                //  0b11010100_01010011_01010011_01010100 => try self.handleSRGB(offset + 8, data_length),
-                // TODO: gAMA
-                // 0b11001010_01000001_01000001_01000111 => try self.handleGAMA(offset + 8, data_length),
+                // pHYs
+                0b01110000_01001000_01011001_01110011 => self.handlepHYs(offset + 8),
+                // bKGD
+                0b01100010_01001011_01000111_01000100 => self.handlebKGD(offset + 8),
+                // sRGB
+                0b11010100_01010011_01010011_01010100 => self.handlesRGB(offset + 8),
+                // gAMA
+                0b01100111_01000001_01001101_01000001 => self.handlegAMA(offset + 8),
                 // TODO: IEND
-                // 0b01001001_01000101_01001110_01000100 => try self.handleIEND(offset + 8, data_length),
+                // 0b01001001_01000101_01001110_01000100 => self.handleIEND(offset + 8, data_length),
 
                 // char char char char
                 else => std.debug.print("unhandled chunk {c}{c}{c}{c}\n", .{
@@ -112,21 +114,80 @@ pub fn pngDecoder() type {
         fn handleIDATuncompress(self: *Self, data_offset: u32, data_length: u32) !void {
             const data_buffer = self.original_img_buffer[data_offset..data_length];
             // TODO: handle other color types. currently hardcoding 4 to stand for color type 6 (R,G,B,A)
-            var uncompressed_len: c_ulong = ((self.height * self.width) * 4) + self.height;
+            var uncompressed_len: c_ulong = ((self.IHDR.height * self.IHDR.width) * 4) + self.IHDR.height;
             var uncompressed_buf = try self.idat_allocator.alloc(u8, uncompressed_len);
             _ = zlib.uncompress(uncompressed_buf.ptr, &uncompressed_len, data_buffer.ptr, data_length);
+        }
 
-            // for (uncompressed_buf, 0..) |val, i| {
-            //     std.debug.print("val at {d}: {any}\n", .{ i, val });
-            // }
+        fn handlepHYs(self: *Self, offset: u32) void {
+            const ppu_x: u32 =
+                @as(u32, self.original_img_buffer[offset]) << 24 |
+                @as(u32, self.original_img_buffer[offset + 1]) << 16 |
+                @as(u32, self.original_img_buffer[offset + 2]) << 8 |
+                @as(u32, self.original_img_buffer[offset + 3]);
+            const ppu_y: u32 =
+                @as(u32, self.original_img_buffer[offset + 4]) << 24 |
+                @as(u32, self.original_img_buffer[offset + 5]) << 16 |
+                @as(u32, self.original_img_buffer[offset + 6]) << 8 |
+                @as(u32, self.original_img_buffer[offset + 7]);
+            self.pHYS = .{
+                .ppu_x = ppu_x,
+                .ppu_y = ppu_y,
+                .unit_specifier = self.original_img_buffer[offset + 9],
+            };
+        }
+
+        fn handlebKGD(self: *Self, offset: u32) void {
+            const greyscale: u16 =
+                @as(u16, self.original_img_buffer[offset]) << 8 |
+                @as(u16, self.original_img_buffer[offset + 1]);
+            const red: u16 =
+                @as(u16, self.original_img_buffer[offset + 2]) << 8 |
+                @as(u16, self.original_img_buffer[offset + 3]);
+            const green: u16 =
+                @as(u16, self.original_img_buffer[offset + 4]) << 8 |
+                @as(u16, self.original_img_buffer[offset + 5]);
+            const blue: u16 =
+                @as(u16, self.original_img_buffer[offset + 6]) << 8 |
+                @as(u16, self.original_img_buffer[offset + 7]);
+
+            self.bKGD = .{
+                .greyscale = greyscale,
+                .red = red,
+                .green = green,
+                .blue = blue,
+                .palette_index = self.original_img_buffer[offset + 8],
+            };
+        }
+
+        fn handlesRGB(self: *Self, offset: u32) void {
+            self.sRGB = .{
+                .rendering_intent = self.original_img_buffer[offset],
+            };
+        }
+
+        // TODO: decode gAMA
+        fn handlegAMA(self: *Self, offset: u32) void {
+            const gama: u32 =
+                @as(u32, self.original_img_buffer[offset]) << 24 |
+                @as(u32, self.original_img_buffer[offset + 1]) << 16 |
+                @as(u32, self.original_img_buffer[offset + 2]) << 8 |
+                @as(u32, self.original_img_buffer[offset + 3]);
+            std.debug.print("gama: {any}\n", .{gama});
         }
 
         pub fn print(self: *Self) void {
-            std.debug.print("width {any}\n", .{self.width});
-            std.debug.print("height {any}\n", .{self.height});
-            std.debug.print("bit_depth {any}\n", .{self.bit_depth});
-            std.debug.print("color_type {any}\n", .{self.color_type});
-            std.debug.print("compression_method {any}\n", .{self.compression_method});
+            std.debug.print("width {any}\n", .{self.IHDR.width});
+            std.debug.print("height {any}\n", .{self.IHDR.height});
+            std.debug.print("bit_depth {any}\n", .{self.IHDR.bit_depth});
+            std.debug.print("color_type {any}\n", .{self.IHDR.color_type});
+            std.debug.print("compression_method {any}\n", .{self.IHDR.compression_method});
+            std.debug.print("greyscale: {any}\n", .{self.bKGD.?.greyscale});
+            std.debug.print("red: {any}\n", .{self.bKGD.?.red});
+            std.debug.print("green: {any}\n", .{self.bKGD.?.green});
+            std.debug.print("blue: {any}\n", .{self.bKGD.?.blue});
+            std.debug.print("palette_index: {any}\n", .{self.bKGD.?.palette_index});
+            std.debug.print("rendering_intent: {any}\n", .{self.sRGB.?.rendering_intent});
         }
     };
 }

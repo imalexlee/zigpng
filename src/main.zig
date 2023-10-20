@@ -14,7 +14,7 @@ pub fn main() !void {
     var allocator = std.heap.ArenaAllocator.init(gpa.backing_allocator);
     var idatAllocator = std.heap.ArenaAllocator.init(idatGpa.backing_allocator);
     const arena = allocator.allocator();
-    const file_path = "samples/vibrant.png";
+    const file_path = "samples/image2.png";
     const file = try std.fs.cwd().openFile(file_path, .{});
     defer file.close();
 
