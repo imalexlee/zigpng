@@ -6,6 +6,7 @@ pub fn pngDecoder() type {
     return struct {
         const Self = @This();
         idat_allocator: std.mem.Allocator,
+        unfiltered_list: std.ArrayList(u8),
 
         original_img_buffer: []u8,
         IHDR: models.IHDR,
@@ -34,9 +35,11 @@ pub fn pngDecoder() type {
             const compression_method: u8 = buffer[26];
             const filter_method: u8 = buffer[27];
             const interlace_method: u8 = buffer[28];
-
+            const unfilter_allocator = std.heap.GeneralPurposeAllocator(.{}){};
+            const unfilter_list = std.ArrayList(u8).init(unfilter_allocator.backing_allocator);
             return Self{
                 .idat_allocator = idatAllocator,
+                .unfiltered_list = unfilter_list,
                 .original_img_buffer = buffer,
                 .IHDR = .{
                     .height = height,
@@ -56,7 +59,8 @@ pub fn pngDecoder() type {
 
         pub fn readChunks(self: *Self) !void {
 
-            // bit 33 is one index after the last CRC byte for the IHDR
+            // bit 33 is one index after the last CRC byte for the IHDR.
+            // start there
             var offset: u32 = 33;
 
             while (offset < self.file_size) {
@@ -85,7 +89,7 @@ pub fn pngDecoder() type {
                 // bKGD
                 0b01100010_01001011_01000111_01000100 => self.handlebKGD(offset + 8),
                 // sRGB
-                0b11010100_01010011_01010011_01010100 => self.handlesRGB(offset + 8),
+                0b01110011_01010010_01000111_01000010 => self.handlesRGB(offset + 8),
                 // gAMA
                 0b01100111_01000001_01001101_01000001 => self.handlegAMA(offset + 8),
                 // TODO: IEND
@@ -112,11 +116,59 @@ pub fn pngDecoder() type {
 
         // appends an entire IDAT chunk to the idat list
         fn handleIDATuncompress(self: *Self, data_offset: u32, data_length: u32) !void {
+            std.debug.print("idat hit\n", .{});
+
+            var bytes_per_pix: u8 = switch (self.IHDR.color_type) {
+                // match values represent color type
+                // https://www.w3.org/TR/png/#3colourType
+                // 1 byte: greyscale luminance
+                0 => 1,
+                // 3 bytes: R,G,B
+                2 => 3,
+                // 1 byte: pallete index
+                3 => 1,
+                // 2 bytes: greyscale luminance + Alpha
+                4 => 2,
+                // 4 bytes: R,G,B,A
+                6 => 4,
+
+                else => return,
+            };
             const data_buffer = self.original_img_buffer[data_offset..data_length];
-            // TODO: handle other color types. currently hardcoding 4 to stand for color type 6 (R,G,B,A)
-            var uncompressed_len: c_ulong = ((self.IHDR.height * self.IHDR.width) * 4) + self.IHDR.height;
+            var uncompressed_len: c_ulong = ((self.IHDR.height * self.IHDR.width) * bytes_per_pix) + self.IHDR.height;
             var uncompressed_buf = try self.idat_allocator.alloc(u8, uncompressed_len);
+
             _ = zlib.uncompress(uncompressed_buf.ptr, &uncompressed_len, data_buffer.ptr, data_length);
+            _ = try self.unFilterIDAT(uncompressed_buf, bytes_per_pix);
+        }
+
+        fn unFilterIDAT(self: *Self, idat_buffer: []u8, bytes_per_pix: u8) !void {
+            const line_width = (self.IHDR.width * bytes_per_pix) + 1;
+            for (0..self.IHDR.height) |i| {
+                switch (idat_buffer[i * line_width]) {
+                    0 => continue,
+                    1 => unFilter1(),
+                    2 => unFilter2(),
+                    3 => unFilter3(),
+                    4 => unFilter4(),
+                    else => return,
+                }
+                // _ = try self.unfiltered_list.appendSlice(idat_buffer[pos..line_width]);
+
+            }
+        }
+
+        fn unFilter1() void {
+            std.debug.print("unfiltering filter 1\n", .{});
+        }
+        fn unFilter2() void {
+            std.debug.print("unfiltering filter 2\n", .{});
+        }
+        fn unFilter3() void {
+            std.debug.print("unfiltering filter 3\n", .{});
+        }
+        fn unFilter4() void {
+            std.debug.print("unfiltering filter 4\n", .{});
         }
 
         fn handlepHYs(self: *Self, offset: u32) void {
@@ -179,15 +231,16 @@ pub fn pngDecoder() type {
         pub fn print(self: *Self) void {
             std.debug.print("width {any}\n", .{self.IHDR.width});
             std.debug.print("height {any}\n", .{self.IHDR.height});
-            std.debug.print("bit_depth {any}\n", .{self.IHDR.bit_depth});
+            std.debug.print("filter method {any}\n", .{self.IHDR.filter_method});
+            // std.debug.print("bit_depth {any}\n", .{self.IHDR.bit_depth});
             std.debug.print("color_type {any}\n", .{self.IHDR.color_type});
-            std.debug.print("compression_method {any}\n", .{self.IHDR.compression_method});
-            std.debug.print("greyscale: {any}\n", .{self.bKGD.?.greyscale});
-            std.debug.print("red: {any}\n", .{self.bKGD.?.red});
-            std.debug.print("green: {any}\n", .{self.bKGD.?.green});
-            std.debug.print("blue: {any}\n", .{self.bKGD.?.blue});
-            std.debug.print("palette_index: {any}\n", .{self.bKGD.?.palette_index});
-            std.debug.print("rendering_intent: {any}\n", .{self.sRGB.?.rendering_intent});
+            // std.debug.print("compression_method {any}\n", .{self.IHDR.compression_method});
+            // std.debug.print("greyscale: {any}\n", .{self.bKGD.?.greyscale});
+            // std.debug.print("red: {any}\n", .{self.bKGD.?.red});
+            // std.debug.print("green: {any}\n", .{self.bKGD.?.green});
+            // std.debug.print("blue: {any}\n", .{self.bKGD.?.blue});
+            // std.debug.print("palette_index: {any}\n", .{self.bKGD.?.palette_index});
+            // std.debug.print("rendering_intent: {any}\n", .{self.sRGB.?.rendering_intent});
         }
     };
 }
