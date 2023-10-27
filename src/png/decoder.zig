@@ -7,9 +7,11 @@ pub fn pngDecoder() type {
     return struct {
         const Self = @This();
         idat_allocator: std.mem.Allocator,
-        unfiltered_list: std.ArrayList(u8),
-
+        uncompressed_buf: []u8,
+        uncompressed_len: c_ulong,
+        bytes_per_pix: u8,
         original_img_buffer: []u8,
+
         IHDR: models.IHDR,
         pHYS: ?models.pHYs = null,
         bKGD: ?models.bKGD = null,
@@ -19,7 +21,7 @@ pub fn pngDecoder() type {
         /// initialize the list allocator to store IDAT chunks and the buffer holding the read image file
         ///
         /// also fill in some metadata from the IHDR chunk
-        pub fn init(idatAllocator: std.mem.Allocator, buffer: []u8, file_size: u64) Self {
+        pub fn init(idatAllocator: std.mem.Allocator, buffer: []u8, file_size: u64) !Self {
             const width: u32 =
                 @as(u32, buffer[16]) << 24 |
                 @as(u32, buffer[17]) << 16 |
@@ -36,12 +38,32 @@ pub fn pngDecoder() type {
             const compression_method: u8 = buffer[26];
             const filter_method: u8 = buffer[27];
             const interlace_method: u8 = buffer[28];
-            const unfilter_allocator = std.heap.GeneralPurposeAllocator(.{}){};
-            const unfilter_list = std.ArrayList(u8).init(unfilter_allocator.backing_allocator);
+
+            var bytes_per_pix: u8 = switch (color_type) {
+                // match values represent color type
+                // https://www.w3.org/TR/png/#3colourType
+                // 1 byte: greyscale luminance
+                0 => 1,
+                // 3 bytes: R,G,B
+                2 => 3,
+                // 1 byte: pallete index
+                3 => 1,
+                // 2 bytes: greyscale luminance + Alpha
+                4 => 2,
+                // 4 bytes: R,G,B,A
+                6 => 4,
+
+                else => unreachable,
+            };
+
+            var uncompressed_len: c_ulong = ((height * width) * bytes_per_pix) + height;
+            var uncompressed_buf = try idatAllocator.alloc(u8, uncompressed_len);
             return Self{
                 .idat_allocator = idatAllocator,
-                .unfiltered_list = unfilter_list,
                 .original_img_buffer = buffer,
+                .uncompressed_buf = uncompressed_buf,
+                .uncompressed_len = uncompressed_len,
+                .bytes_per_pix = bytes_per_pix,
                 .IHDR = .{
                     .height = height,
                     .width = width,
@@ -119,32 +141,10 @@ pub fn pngDecoder() type {
         fn handleIDATuncompress(self: *Self, data_offset: u32, data_length: u32) !void {
             std.debug.print("idat hit\n", .{});
 
-            var bytes_per_pix: u8 = switch (self.IHDR.color_type) {
-                // match values represent color type
-                // https://www.w3.org/TR/png/#3colourType
-                // 1 byte: greyscale luminance
-                0 => 1,
-                // 3 bytes: R,G,B
-                2 => 3,
-                // 1 byte: pallete index
-                3 => 1,
-                // 2 bytes: greyscale luminance + Alpha
-                4 => 2,
-                // 4 bytes: R,G,B,A
-                6 => 4,
-
-                else => return,
-            };
-
             const compressed_buf = self.original_img_buffer[data_offset..data_length];
-            var uncompressed_len: c_ulong = ((self.IHDR.height * self.IHDR.width) * bytes_per_pix) + self.IHDR.height;
-            var uncompressed_buf = try self.idat_allocator.alloc(u8, uncompressed_len);
 
-            _ = zlib.uncompress(uncompressed_buf.ptr, &uncompressed_len, compressed_buf.ptr, data_length);
-            _ = try self.unFilterIDAT(uncompressed_buf, bytes_per_pix);
-            // for (uncompressed_buf, 0..) |value, i| {
-            //     std.debug.print("val at {d} is {any}\n", .{ i, value });
-            // }
+            _ = zlib.uncompress(self.uncompressed_buf.ptr, &self.uncompressed_len, compressed_buf.ptr, data_length);
+            _ = try self.unFilterIDAT(self.uncompressed_buf, self.bytes_per_pix);
         }
 
         fn unFilterIDAT(self: *Self, idat_buffer: []u8, bytes_per_pix: u8) !void {
@@ -153,14 +153,12 @@ pub fn pngDecoder() type {
                 // handle filter types 1 through 4
                 switch (idat_buffer[i * line_width]) {
                     1 => unfliter.unFilterSub(idat_buffer, i, line_width, bytes_per_pix),
-                    2 => unfliter.unFilterUp(),
-                    3 => unfliter.unFilterAverage(),
+                    2 => unfliter.unFilterUp(idat_buffer, i, line_width, bytes_per_pix),
+                    3 => unfliter.unFilterAverage(idat_buffer, i, line_width, bytes_per_pix),
                     4 => unfliter.unFilterPaeth(),
                     // filter was 0, don't do anything
                     else => {},
                 }
-                // _ = try self.unfiltered_list.appendSlice(idat_buffer[pos..line_width]);
-
             }
         }
 
@@ -222,11 +220,12 @@ pub fn pngDecoder() type {
         }
 
         pub fn print(self: *Self) void {
-            std.debug.print("width {any}\n", .{self.IHDR.width});
-            std.debug.print("height {any}\n", .{self.IHDR.height});
-            std.debug.print("filter method {any}\n", .{self.IHDR.filter_method});
+            _ = self;
+            // std.debug.print("width {any}\n", .{self.IHDR.width});
+            // std.debug.print("height {any}\n", .{self.IHDR.height});
+            // std.debug.print("filter method {any}\n", .{self.IHDR.filter_method});
             // std.debug.print("bit_depth {any}\n", .{self.IHDR.bit_depth});
-            std.debug.print("color_type {any}\n", .{self.IHDR.color_type});
+            // std.debug.print("color_type {any}\n", .{self.IHDR.color_type});
             // std.debug.print("compression_method {any}\n", .{self.IHDR.compression_method});
             // std.debug.print("greyscale: {any}\n", .{self.bKGD.?.greyscale});
             // std.debug.print("red: {any}\n", .{self.bKGD.?.red});
@@ -234,7 +233,9 @@ pub fn pngDecoder() type {
             // std.debug.print("blue: {any}\n", .{self.bKGD.?.blue});
             // std.debug.print("palette_index: {any}\n", .{self.bKGD.?.palette_index});
             // std.debug.print("rendering_intent: {any}\n", .{self.sRGB.?.rendering_intent});
-
+            // for (0..self.uncompressed_len) |i| {
+            //     std.debug.print("val at {d}: {any}\n", .{ i, self.uncompressed_buf[i] });
+            // }
         }
     };
 }
