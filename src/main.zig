@@ -1,6 +1,6 @@
 const std = @import("std");
 const zlib = @cImport(@cInclude("zlib.h"));
-const pngDecoder = @import("./png/pngDecoder.zig");
+const pngDecoder = @import("./png/decoder.zig");
 
 // zig build-exe src/main.zig -O ReleaseFast -fstrip -lc -lz
 pub fn main() !void {
@@ -16,7 +16,7 @@ pub fn main() !void {
     var allocator = std.heap.ArenaAllocator.init(gpa.backing_allocator);
     var idatAllocator = std.heap.ArenaAllocator.init(idatGpa.backing_allocator);
     const arena = allocator.allocator();
-    const file_path = "samples/vibrant.png";
+    const file_path = "samples/filtering/f01n2c08.png";
     const file = try std.fs.cwd().openFile(file_path, .{});
     defer file.close();
 

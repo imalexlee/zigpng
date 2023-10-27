@@ -1,6 +1,7 @@
 const std = @import("std");
-const models = @import("./pngModels.zig");
+const models = @import("./models.zig");
 const zlib = @cImport(@cInclude("zlib.h"));
+const unfliter = @import("./unfilter.zig");
 
 pub fn pngDecoder() type {
     return struct {
@@ -134,41 +135,33 @@ pub fn pngDecoder() type {
 
                 else => return,
             };
-            const data_buffer = self.original_img_buffer[data_offset..data_length];
+
+            const compressed_buf = self.original_img_buffer[data_offset..data_length];
             var uncompressed_len: c_ulong = ((self.IHDR.height * self.IHDR.width) * bytes_per_pix) + self.IHDR.height;
             var uncompressed_buf = try self.idat_allocator.alloc(u8, uncompressed_len);
 
-            _ = zlib.uncompress(uncompressed_buf.ptr, &uncompressed_len, data_buffer.ptr, data_length);
+            _ = zlib.uncompress(uncompressed_buf.ptr, &uncompressed_len, compressed_buf.ptr, data_length);
             _ = try self.unFilterIDAT(uncompressed_buf, bytes_per_pix);
+            // for (uncompressed_buf, 0..) |value, i| {
+            //     std.debug.print("val at {d} is {any}\n", .{ i, value });
+            // }
         }
 
         fn unFilterIDAT(self: *Self, idat_buffer: []u8, bytes_per_pix: u8) !void {
             const line_width = (self.IHDR.width * bytes_per_pix) + 1;
             for (0..self.IHDR.height) |i| {
+                // handle filter types 1 through 4
                 switch (idat_buffer[i * line_width]) {
-                    0 => continue,
-                    1 => unFilter1(),
-                    2 => unFilter2(),
-                    3 => unFilter3(),
-                    4 => unFilter4(),
-                    else => return,
+                    1 => unfliter.unFilterSub(idat_buffer, i, line_width, bytes_per_pix),
+                    2 => unfliter.unFilterUp(),
+                    3 => unfliter.unFilterAverage(),
+                    4 => unfliter.unFilterPaeth(),
+                    // filter was 0, don't do anything
+                    else => {},
                 }
                 // _ = try self.unfiltered_list.appendSlice(idat_buffer[pos..line_width]);
 
             }
-        }
-
-        fn unFilter1() void {
-            std.debug.print("unfiltering filter 1\n", .{});
-        }
-        fn unFilter2() void {
-            std.debug.print("unfiltering filter 2\n", .{});
-        }
-        fn unFilter3() void {
-            std.debug.print("unfiltering filter 3\n", .{});
-        }
-        fn unFilter4() void {
-            std.debug.print("unfiltering filter 4\n", .{});
         }
 
         fn handlepHYs(self: *Self, offset: u32) void {
@@ -241,6 +234,7 @@ pub fn pngDecoder() type {
             // std.debug.print("blue: {any}\n", .{self.bKGD.?.blue});
             // std.debug.print("palette_index: {any}\n", .{self.bKGD.?.palette_index});
             // std.debug.print("rendering_intent: {any}\n", .{self.sRGB.?.rendering_intent});
+
         }
     };
 }
