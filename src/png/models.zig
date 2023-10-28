@@ -8,7 +8,7 @@ const std = @import("std");
 //     IEND = 0b01001001_01000101_01001110_01000100,
 // };
 
-// // not too different from simple union
+// not too different from simple union
 // pub const chunkUnion = union(ChunkType) {
 //     IHDR: IHDRs,
 //     PLTE: PLTEs,

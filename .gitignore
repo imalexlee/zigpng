@@ -3,5 +3,5 @@ zig-out/
 samples/
 
 .vscode
-main
-main.o
+./main
+./main.o

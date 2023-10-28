@@ -144,6 +144,7 @@ pub fn pngDecoder() type {
             const compressed_buf = self.original_img_buffer[data_offset..data_length];
 
             _ = zlib.uncompress(self.uncompressed_buf.ptr, &self.uncompressed_len, compressed_buf.ptr, data_length);
+            std.debug.print("\n\n\nAT 100 E##HRHEHR E: {}\n\n\n", .{self.uncompressed_buf[101]});
             _ = try self.unFilterIDAT(self.uncompressed_buf, self.bytes_per_pix);
         }
 
@@ -155,7 +156,7 @@ pub fn pngDecoder() type {
                     1 => unfliter.unFilterSub(idat_buffer, i, line_width, bytes_per_pix),
                     2 => unfliter.unFilterUp(idat_buffer, i, line_width, bytes_per_pix),
                     3 => unfliter.unFilterAverage(idat_buffer, i, line_width, bytes_per_pix),
-                    4 => unfliter.unFilterPaeth(),
+                    4 => unfliter.unFilterPaeth(idat_buffer, i, line_width, bytes_per_pix),
                     // filter was 0, don't do anything
                     else => {},
                 }
