@@ -1,6 +1,6 @@
 const std = @import("std");
 const zlib = @cImport(@cInclude("zlib.h"));
-const pngDecoder = @import("./png/decoder.zig");
+const pngDecoder = @import("./decode/decoder.zig");
 
 // zig build-exe src/main.zig -O ReleaseFast -fstrip -lc -lz
 pub fn main() !void {
