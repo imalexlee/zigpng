@@ -13,11 +13,17 @@ pub fn main() !void {
         .verbose_log = true,
     }){};
 
+    const uncompressedGpa = std.heap.GeneralPurposeAllocator(.{
+        .retain_metadata = true,
+        .verbose_log = true,
+    }){};
+
     const startTime = std.time.microTimestamp();
     var allocator = std.heap.ArenaAllocator.init(gpa.backing_allocator);
     var idatAllocator = std.heap.ArenaAllocator.init(idatGpa.backing_allocator);
+    var uncompressedAllocator = std.heap.ArenaAllocator.init(uncompressedGpa.backing_allocator);
     const arena = allocator.allocator();
-    const file_path = "samples/filtering/f03n2c08.png";
+    const file_path = "samples/image2.png";
     const file = try std.fs.cwd().openFile(file_path, .{});
     defer file.close();
 
@@ -28,7 +34,7 @@ pub fn main() !void {
 
     const pngDecode = pngDecoder.pngDecoder();
     _ = try file.read(buffer);
-    var PNG = try pngDecode.init(idatAllocator.allocator(), buffer, file_size);
+    var PNG = try pngDecode.init(idatAllocator.allocator(), uncompressedAllocator.allocator(), buffer, file_size);
     _ = try PNG.readChunks();
     PNG.print();
 

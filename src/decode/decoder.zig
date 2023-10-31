@@ -1,17 +1,17 @@
 const std = @import("std");
 const models = @import("./models.zig");
-const zlib = @cImport(@cInclude("zlib.h"));
 const unfliter = @import("./unfilter.zig");
+const zlib = @cImport(@cInclude("zlib.h"));
 
 pub fn pngDecoder() type {
     return struct {
         const Self = @This();
         // holds the compressed idat data
         idat_list: std.ArrayList(u8),
-        //idat_allocator: std.mem.Allocator,
+        idat_allocator: std.mem.Allocator,
+        uncompressed_allocator: std.mem.Allocator,
         uncompressed_buf: []u8,
 
-        idat_pos: u32,
         uncompressed_len: c_ulong,
         bytes_per_pix: u8,
         original_img_buffer: []u8,
@@ -25,76 +25,29 @@ pub fn pngDecoder() type {
         /// initialize the list allocator to store IDAT chunks and the buffer holding the read image file
         ///
         /// also fill in some metadata from the IHDR chunk
-        pub fn init(idatAllocator: std.mem.Allocator, buffer: []u8, file_size: u64) !Self {
-            const width: u32 =
-                @as(u32, buffer[16]) << 24 |
-                @as(u32, buffer[17]) << 16 |
-                @as(u32, buffer[18]) << 8 |
-                @as(u32, buffer[19]);
-            const height: u32 =
-                @as(u32, buffer[20]) << 24 |
-                @as(u32, buffer[21]) << 16 |
-                @as(u32, buffer[22]) << 8 |
-                @as(u32, buffer[23]);
-
-            const bit_depth: u8 = buffer[24];
-            const color_type: u8 = buffer[25];
-            const compression_method: u8 = buffer[26];
-            const filter_method: u8 = buffer[27];
-            const interlace_method: u8 = buffer[28];
-
-            var bytes_per_pix: u8 = switch (color_type) {
-                // match values represent color type
-                // https://www.w3.org/TR/png/#3colourType
-                // 1 byte: greyscale luminance
-                0 => 1,
-                // 3 bytes: R,G,B
-                2 => 3,
-                // 1 byte: pallete index
-                3 => 1,
-                // 2 bytes: greyscale luminance + Alpha
-                4 => 2,
-                // 4 bytes: R,G,B,A
-                6 => 4,
-
-                else => unreachable,
-            };
-
-            var uncompressed_len: c_ulong = ((height * width) * bytes_per_pix) + height;
-            var uncompressed_buf = try idatAllocator.alloc(u8, uncompressed_len);
+        pub fn init(idatAllocator: std.mem.Allocator, uncompressedAllocator: std.mem.Allocator, buffer: []u8, file_size: u64) !Self {
             var idat_list = std.ArrayList(u8).init(
                 idatAllocator,
             );
-            // _ = try idat_list.addManyAsArray()
 
             return Self{
                 .idat_list = idat_list,
                 .original_img_buffer = buffer,
-                .uncompressed_buf = uncompressed_buf,
-                .uncompressed_len = uncompressed_len,
-                .bytes_per_pix = bytes_per_pix,
-                .idat_pos = 0,
-                .IHDR = .{
-                    .height = height,
-                    .width = width,
-                    .bit_depth = bit_depth,
-                    .color_type = color_type,
-                    .compression_method = compression_method,
-                    .filter_method = filter_method,
-                    .interlace_method = interlace_method,
-                },
-                // .pHYS = .{
-
-                // }
+                .idat_allocator = idatAllocator,
+                .uncompressed_buf = undefined,
+                .uncompressed_allocator = uncompressedAllocator,
+                .uncompressed_len = undefined,
+                .bytes_per_pix = undefined,
+                .IHDR = undefined,
                 .file_size = file_size,
             };
         }
 
         pub fn readChunks(self: *Self) !void {
 
-            // bit 33 is one index after the last CRC byte for the IHDR.
+            // byte 33 is one index after the last CRC byte for the IHDR.
             // start there
-            var offset: u32 = 33;
+            var offset: u32 = 8;
 
             while (offset < self.file_size) {
                 offset += try self.read_chunk(offset);
@@ -114,7 +67,12 @@ pub fn pngDecoder() type {
                 @as(u32, self.original_img_buffer[offset + 6]) << 8 |
                 @as(u32, self.original_img_buffer[offset + 7]);
 
+            var crc = zlib.crc32(0, zlib.Z_NULL, 0);
+            self.handleCRC(&crc, offset + 4, data_length);
+
             switch (data_type) {
+                //IHDR
+                0b01001001_01001000_01000100_01010010 => try self.handleIHDR(),
                 // IDAT
                 0b01001001_01000100_01000001_01010100 => try self.handleIDAT(offset + 8, data_length),
                 // pHYs
@@ -127,7 +85,6 @@ pub fn pngDecoder() type {
                 0b01100111_01000001_01001101_01000001 => self.handlegAMA(offset + 8),
                 // IEND
                 0b01001001_01000101_01001110_01000100 => try self.unFilterIDAT(self.uncompressed_buf, self.bytes_per_pix),
-
                 // char char char char
                 else => std.debug.print("unhandled chunk {c}{c}{c}{c}\n", .{
                     self.original_img_buffer[offset + 4],
@@ -136,15 +93,84 @@ pub fn pngDecoder() type {
                     self.original_img_buffer[offset + 7],
                 }),
             }
-            // TODO: handle crc
-            // const crc: u32 =
-            //     @as(u32, self.original_img_buffer[offset + data_length + 8]) << 24 |
-            //     @as(u32, self.original_img_buffer[offset + data_length + 9]) << 16 |
-            //     @as(u32, self.original_img_buffer[offset + data_length + 10]) << 8 |
-            //     @as(u32, self.original_img_buffer[offset + data_length + 11]);
 
             // 4 byte length + 4 byte type + {{data_length}} data + 4 byte crc
             return data_length + 12;
+        }
+
+        fn handleIHDR(self: *Self) !void {
+            const width: u32 =
+                @as(u32, self.original_img_buffer[16]) << 24 |
+                @as(u32, self.original_img_buffer[17]) << 16 |
+                @as(u32, self.original_img_buffer[18]) << 8 |
+                @as(u32, self.original_img_buffer[19]);
+            const height: u32 =
+                @as(u32, self.original_img_buffer[20]) << 24 |
+                @as(u32, self.original_img_buffer[21]) << 16 |
+                @as(u32, self.original_img_buffer[22]) << 8 |
+                @as(u32, self.original_img_buffer[23]);
+
+            const bit_depth: u8 = self.original_img_buffer[24];
+            const color_type: u8 = self.original_img_buffer[25];
+            const compression_method: u8 = self.original_img_buffer[26];
+            const filter_method: u8 = self.original_img_buffer[27];
+            const interlace_method: u8 = self.original_img_buffer[28];
+
+            var bytes_per_pix: u8 = switch (color_type) {
+                // match values represent color type
+                // https://www.w3.org/TR/png/#3colourType
+                // 1 byte: greyscale luminance
+                0 => 1,
+                // 3 bytes: R,G,B
+                2 => 3,
+                // 1 byte: pallete index
+                3 => 1,
+                // 2 bytes: greyscale luminance + Alpha
+                4 => 2,
+                // 4 bytes: R,G,B,A
+                6 => 4,
+
+                else => unreachable,
+            };
+
+            var uncompressed_len: c_ulong = ((height * width) * bytes_per_pix) + height;
+            var uncompressed_buf = try self.uncompressed_allocator.alloc(u8, uncompressed_len);
+            self.uncompressed_buf = uncompressed_buf;
+            self.uncompressed_len = uncompressed_len;
+
+            self.IHDR = .{
+                .height = height,
+                .width = width,
+                .bit_depth = bit_depth,
+                .color_type = color_type,
+                .compression_method = compression_method,
+                .filter_method = filter_method,
+                .interlace_method = interlace_method,
+            };
+            self.bytes_per_pix = bytes_per_pix;
+        }
+
+        fn handleCRC(self: *Self, crc: *c_ulong, type_offset: u32, data_length: u32) void {
+            var end_pos = type_offset + data_length + 4;
+            const buffer = self.original_img_buffer[type_offset..end_pos];
+            crc.* = zlib.crc32(crc.*, buffer.ptr, data_length + 4);
+            const original_crc: u32 =
+                @as(u32, self.original_img_buffer[end_pos]) << 24 |
+                @as(u32, self.original_img_buffer[end_pos + 1]) << 16 |
+                @as(u32, self.original_img_buffer[end_pos + 2]) << 8 |
+                @as(u32, self.original_img_buffer[end_pos + 3]);
+
+            std.debug.print("chunk {c}{c}{c}{c}\n", .{
+                self.original_img_buffer[type_offset],
+                self.original_img_buffer[type_offset + 1],
+                self.original_img_buffer[type_offset + 2],
+                self.original_img_buffer[type_offset + 3],
+            });
+            if (crc.* == original_crc) {
+                std.debug.print("crc values identical\n\n", .{});
+            } else {
+                std.debug.print("crc values differ\n\n", .{});
+            }
         }
 
         // appends an entire IDAT chunk to the idat list
