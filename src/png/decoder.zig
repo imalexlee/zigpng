@@ -6,8 +6,12 @@ const unfliter = @import("./unfilter.zig");
 pub fn pngDecoder() type {
     return struct {
         const Self = @This();
-        idat_allocator: std.mem.Allocator,
+        // holds the compressed idat data
+        idat_list: std.ArrayList(u8),
+        //idat_allocator: std.mem.Allocator,
         uncompressed_buf: []u8,
+
+        idat_pos: u32,
         uncompressed_len: c_ulong,
         bytes_per_pix: u8,
         original_img_buffer: []u8,
@@ -58,12 +62,18 @@ pub fn pngDecoder() type {
 
             var uncompressed_len: c_ulong = ((height * width) * bytes_per_pix) + height;
             var uncompressed_buf = try idatAllocator.alloc(u8, uncompressed_len);
+            var idat_list = std.ArrayList(u8).init(
+                idatAllocator,
+            );
+            // _ = try idat_list.addManyAsArray()
+
             return Self{
-                .idat_allocator = idatAllocator,
+                .idat_list = idat_list,
                 .original_img_buffer = buffer,
                 .uncompressed_buf = uncompressed_buf,
                 .uncompressed_len = uncompressed_len,
                 .bytes_per_pix = bytes_per_pix,
+                .idat_pos = 0,
                 .IHDR = .{
                     .height = height,
                     .width = width,
@@ -106,7 +116,7 @@ pub fn pngDecoder() type {
 
             switch (data_type) {
                 // IDAT
-                0b01001001_01000100_01000001_01010100 => try self.handleIDATuncompress(offset + 8, data_length),
+                0b01001001_01000100_01000001_01010100 => try self.handleIDAT(offset + 8, data_length),
                 // pHYs
                 0b01110000_01001000_01011001_01110011 => self.handlepHYs(offset + 8),
                 // bKGD
@@ -115,8 +125,8 @@ pub fn pngDecoder() type {
                 0b01110011_01010010_01000111_01000010 => self.handlesRGB(offset + 8),
                 // gAMA
                 0b01100111_01000001_01001101_01000001 => self.handlegAMA(offset + 8),
-                // TODO: IEND
-                // 0b01001001_01000101_01001110_01000100 => self.handleIEND(offset + 8, data_length),
+                // IEND
+                0b01001001_01000101_01001110_01000100 => try self.unFilterIDAT(self.uncompressed_buf, self.bytes_per_pix),
 
                 // char char char char
                 else => std.debug.print("unhandled chunk {c}{c}{c}{c}\n", .{
@@ -133,22 +143,20 @@ pub fn pngDecoder() type {
             //     @as(u32, self.original_img_buffer[offset + data_length + 10]) << 8 |
             //     @as(u32, self.original_img_buffer[offset + data_length + 11]);
 
-            // 4 byte length + 4 byte type + [data_length] data + 4 byte crc
+            // 4 byte length + 4 byte type + {{data_length}} data + 4 byte crc
             return data_length + 12;
         }
 
         // appends an entire IDAT chunk to the idat list
-        fn handleIDATuncompress(self: *Self, data_offset: u32, data_length: u32) !void {
-            std.debug.print("idat hit\n", .{});
-
-            const compressed_buf = self.original_img_buffer[data_offset..data_length];
-
-            _ = zlib.uncompress(self.uncompressed_buf.ptr, &self.uncompressed_len, compressed_buf.ptr, data_length);
-            std.debug.print("\n\n\nAT 100 E##HRHEHR E: {}\n\n\n", .{self.uncompressed_buf[101]});
-            _ = try self.unFilterIDAT(self.uncompressed_buf, self.bytes_per_pix);
+        fn handleIDAT(self: *Self, data_offset: u32, data_length: u32) !void {
+            var end_pos = data_offset + data_length;
+            const compressed_buf = self.original_img_buffer[data_offset..end_pos];
+            _ = try self.idat_list.appendSlice(compressed_buf);
         }
 
         fn unFilterIDAT(self: *Self, idat_buffer: []u8, bytes_per_pix: u8) !void {
+            // std.debug.print("unfilter called\n", .{});
+            _ = zlib.uncompress(self.uncompressed_buf.ptr, &self.uncompressed_len, self.idat_list.items.ptr, self.idat_list.items.len);
             const line_width = (self.IHDR.width * bytes_per_pix) + 1;
             for (0..self.IHDR.height) |i| {
                 // handle filter types 1 through 4
@@ -237,6 +245,7 @@ pub fn pngDecoder() type {
             // for (0..self.uncompressed_len) |i| {
             //     std.debug.print("val at {d}: {any}\n", .{ i, self.uncompressed_buf[i] });
             // }
+            // std.debug.print("idat_list.len after: {any}\n\n", .{self.idat_list.items.len});
         }
     };
 }
