@@ -211,7 +211,7 @@ pub fn pngDecoder() type {
             self.pHYS = .{
                 .ppu_x = ppu_x,
                 .ppu_y = ppu_y,
-                .unit_specifier = self.original_img_buffer[offset + 9],
+                .unit_specifier = self.original_img_buffer[offset + 8],
             };
         }
 
