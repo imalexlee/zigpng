@@ -1,9 +1,9 @@
 const std = @import("std");
 
 /// Unfilters a filter type 1 scanline
+///
+/// Takes a full scanline INCLUDING the filter byte
 pub fn unFilterSub(idat_buffer: []u8, line_num: usize, line_width: u32, bytes_per_pix: u8) void {
-    // std.debug.print("sub\n", .{});
-    // start at second pixel and skip filter byte
     var i: u32 = bytes_per_pix + 1;
     while (i < line_width) {
         var start_idx = line_num * line_width + i;
@@ -16,10 +16,10 @@ pub fn unFilterSub(idat_buffer: []u8, line_num: usize, line_width: u32, bytes_pe
 }
 
 /// Unfilters a filter type 2 scanline
+///
+/// Takes a full scanline INCLUDING the filter byte
 pub fn unFilterUp(idat_buffer: []u8, line_num: usize, line_width: u32, bytes_per_pix: u8) void {
-    // std.debug.print("up\n", .{});
     if (line_num == 0) return;
-    // skip filter byte
     var i: u32 = 1;
     while (i < line_width) {
         var start_idx = line_num * line_width + i;
@@ -33,9 +33,9 @@ pub fn unFilterUp(idat_buffer: []u8, line_num: usize, line_width: u32, bytes_per
 }
 
 /// Unfilters a filter type 3 scanline
+///
+/// Takes a full scanline INCLUDING the filter byte
 pub fn unFilterAverage(idat_buffer: []u8, line_num: usize, line_width: u32, bytes_per_pix: u8) void {
-    // std.debug.print("average\n", .{});
-    // skip filter byte
     var i: u32 = 1;
     while (i < line_width) {
         var start_idx = line_num * line_width + i;
@@ -52,8 +52,9 @@ pub fn unFilterAverage(idat_buffer: []u8, line_num: usize, line_width: u32, byte
 }
 
 /// Unfilters a filter type 4 scanline
+///
+/// Takes a full scanline INCLUDING the filter byte
 pub fn unFilterPaeth(idat_buffer: []u8, line_num: usize, line_width: u32, bytes_per_pix: u8) void {
-    // std.debug.print("paeth\n", .{});
     var i: u32 = 1;
     while (i < line_width) {
         var start_idx = line_num * line_width + i;

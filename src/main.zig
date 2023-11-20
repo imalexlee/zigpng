@@ -3,6 +3,7 @@ const zlib = @cImport(@cInclude("zlib.h"));
 const pngDecoder = @import("./decode/decoder.zig");
 
 // zig build-exe src/main.zig -O ReleaseFast -fstrip -lc -lz
+// zig build -Doptimize=ReleaseFast
 pub fn main() !void {
     const gpa = std.heap.GeneralPurposeAllocator(.{
         .retain_metadata = true,

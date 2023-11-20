@@ -6,25 +6,29 @@ const zlib = @cImport(@cInclude("zlib.h"));
 pub fn pngDecoder() type {
     return struct {
         const Self = @This();
-        // holds the compressed idat data
+        original_img_buffer: []u8,
+        file_size: u64 = 0,
+
+        /// holds the collection of compressed IDAT chunk data in a consecutive slice
         idat_list: std.ArrayList(u8),
         idat_allocator: std.mem.Allocator,
-        uncompressed_allocator: std.mem.Allocator,
+        /// contains the uncompressed IDAT data only
         uncompressed_buf: []u8,
-
+        uncompressed_allocator: std.mem.Allocator,
         uncompressed_len: c_ulong,
+
         bytes_per_pix: u8,
-        original_img_buffer: []u8,
 
         IHDR: models.IHDR,
         pHYS: ?models.pHYs = null,
         bKGD: ?models.bKGD = null,
         sRGB: ?models.sRGB = null,
-        file_size: u64 = 0,
 
-        /// initialize the list allocator to store IDAT chunks and the buffer holding the read image file
+        /// idat_allocator used by ArrayList to store a consecutive u8 slice made from all appended IDAT chunk data
         ///
-        /// also fill in some metadata from the IHDR chunk
+        /// uncompressed_allocator used for zlib to store just the decompressed IDAT data with filter byte intact at scanline start
+        ///
+        /// buffer and file size are derived from the actual total image buffer and its length
         pub fn init(idatAllocator: std.mem.Allocator, uncompressedAllocator: std.mem.Allocator, buffer: []u8, file_size: u64) !Self {
             var idat_list = std.ArrayList(u8).init(
                 idatAllocator,
@@ -45,8 +49,7 @@ pub fn pngDecoder() type {
 
         pub fn readChunks(self: *Self) !void {
 
-            // byte 33 is one index after the last CRC byte for the IHDR.
-            // start there
+            // start after the PNG signature, at byte index 8
             var offset: u32 = 8;
 
             while (offset < self.file_size) {
@@ -67,7 +70,9 @@ pub fn pngDecoder() type {
                 @as(u32, self.original_img_buffer[offset + 6]) << 8 |
                 @as(u32, self.original_img_buffer[offset + 7]);
 
+            // initialize CRC
             var crc = zlib.crc32(0, zlib.Z_NULL, 0);
+
             self.handleCRC(&crc, offset + 4, data_length);
 
             switch (data_type) {
@@ -98,7 +103,7 @@ pub fn pngDecoder() type {
             return data_length + 12;
         }
 
-        fn handleIHDR(self: *Self) !void {
+        pub fn handleIHDR(self: *Self) !void {
             const width: u32 =
                 @as(u32, self.original_img_buffer[16]) << 24 |
                 @as(u32, self.original_img_buffer[17]) << 16 |
@@ -150,30 +155,14 @@ pub fn pngDecoder() type {
             self.bytes_per_pix = bytes_per_pix;
         }
 
+        /// In PNG spec, crc is derived from the bytes present in the chunk type and chunk data
         fn handleCRC(self: *Self, crc: *c_ulong, type_offset: u32, data_length: u32) void {
             var end_pos = type_offset + data_length + 4;
             const buffer = self.original_img_buffer[type_offset..end_pos];
             crc.* = zlib.crc32(crc.*, buffer.ptr, data_length + 4);
-            const original_crc: u32 =
-                @as(u32, self.original_img_buffer[end_pos]) << 24 |
-                @as(u32, self.original_img_buffer[end_pos + 1]) << 16 |
-                @as(u32, self.original_img_buffer[end_pos + 2]) << 8 |
-                @as(u32, self.original_img_buffer[end_pos + 3]);
-
-            std.debug.print("chunk {c}{c}{c}{c}\n", .{
-                self.original_img_buffer[type_offset],
-                self.original_img_buffer[type_offset + 1],
-                self.original_img_buffer[type_offset + 2],
-                self.original_img_buffer[type_offset + 3],
-            });
-            if (crc.* == original_crc) {
-                std.debug.print("crc values identical\n\n", .{});
-            } else {
-                std.debug.print("crc values differ\n\n", .{});
-            }
         }
 
-        // appends an entire IDAT chunk to the idat list
+        /// appends each IDAT chunk data to the list of IDAT data in cases of > 1 IDAT chunks
         fn handleIDAT(self: *Self, data_offset: u32, data_length: u32) !void {
             var end_pos = data_offset + data_length;
             const compressed_buf = self.original_img_buffer[data_offset..end_pos];
@@ -181,11 +170,9 @@ pub fn pngDecoder() type {
         }
 
         fn unFilterIDAT(self: *Self, idat_buffer: []u8, bytes_per_pix: u8) !void {
-            // std.debug.print("unfilter called\n", .{});
             _ = zlib.uncompress(self.uncompressed_buf.ptr, &self.uncompressed_len, self.idat_list.items.ptr, self.idat_list.items.len);
             const line_width = (self.IHDR.width * bytes_per_pix) + 1;
             for (0..self.IHDR.height) |i| {
-                // handle filter types 1 through 4
                 switch (idat_buffer[i * line_width]) {
                     1 => unfliter.unFilterSub(idat_buffer, i, line_width, bytes_per_pix),
                     2 => unfliter.unFilterUp(idat_buffer, i, line_width, bytes_per_pix),
