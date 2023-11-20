@@ -1,7 +1,5 @@
 const std = @import("std");
-const zlib = @cImport(@cInclude("zlib.h"));
-const pngDecoder = @import("./decode/decoder.zig");
-
+const decoder = @import("decode/decoder.zig");
 // zig build-exe src/main.zig -O ReleaseFast -fstrip -lc -lz
 // zig build -Doptimize=ReleaseFast
 pub fn main() !void {
@@ -33,7 +31,7 @@ pub fn main() !void {
     var buffer = try arena.alloc(u8, file_size);
     defer arena.free(buffer);
 
-    const pngDecode = pngDecoder.pngDecoder();
+    const pngDecode = decoder.pngDecoder();
     _ = try file.read(buffer);
     var PNG = try pngDecode.init(idatAllocator.allocator(), uncompressedAllocator.allocator(), buffer, file_size);
     _ = try PNG.readChunks();

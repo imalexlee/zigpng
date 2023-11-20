@@ -3,6 +3,20 @@ const models = @import("./models.zig");
 const unfliter = @import("./unfilter.zig");
 const zlib = @cImport(@cInclude("zlib.h"));
 
+const PNG_SIGNATURE = [8]u8{ 137, 80, 78, 71, 13, 10, 26, 10 };
+const PNGReadError = error{
+    NotPNG,
+};
+
+pub fn pull_u32_at_offset(offset: u32, buffer: []u8) u32 {
+    var r: u32 = 0;
+    inline for (0..4) |i| {
+        var b_shift: u5 = 24 - (i * 8);
+        r |= @as(u32, buffer[offset + i]) << b_shift;
+    }
+    return r;
+}
+
 pub fn pngDecoder() type {
     return struct {
         const Self = @This();
@@ -24,9 +38,9 @@ pub fn pngDecoder() type {
         bKGD: ?models.bKGD = null,
         sRGB: ?models.sRGB = null,
 
-        /// idat_allocator used by ArrayList to store a consecutive u8 slice made from all appended IDAT chunk data
+        /// idat_allocator used by ArrayList to store a consecutive u8 slice made from all appended, uncompressed, IDAT chunk data
         ///
-        /// uncompressed_allocator used for zlib to store just the decompressed IDAT data with filter byte intact at scanline start
+        /// uncompressed_allocator used by zlib to store just the decompressed IDAT chunk data with filter byte intact at scanline start
         ///
         /// buffer and file size are derived from the actual total image buffer and its length
         pub fn init(idatAllocator: std.mem.Allocator, uncompressedAllocator: std.mem.Allocator, buffer: []u8, file_size: u64) !Self {
@@ -48,6 +62,11 @@ pub fn pngDecoder() type {
         }
 
         pub fn readChunks(self: *Self) !void {
+            inline for (PNG_SIGNATURE, 0..) |value, i| {
+                if (value != self.original_img_buffer[i]) {
+                    return PNGReadError.NotPNG;
+                }
+            }
 
             // start after the PNG signature, at byte index 8
             var offset: u32 = 8;
@@ -90,7 +109,6 @@ pub fn pngDecoder() type {
                 0b01100111_01000001_01001101_01000001 => self.handlegAMA(offset + 8),
                 // IEND
                 0b01001001_01000101_01001110_01000100 => try self.unFilterIDAT(self.uncompressed_buf, self.bytes_per_pix),
-                // char char char char
                 else => std.debug.print("unhandled chunk {c}{c}{c}{c}\n", .{
                     self.original_img_buffer[offset + 4],
                     self.original_img_buffer[offset + 5],
@@ -98,7 +116,6 @@ pub fn pngDecoder() type {
                     self.original_img_buffer[offset + 7],
                 }),
             }
-
             // 4 byte length + 4 byte type + {{data_length}} data + 4 byte crc
             return data_length + 12;
         }

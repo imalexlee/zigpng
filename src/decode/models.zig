@@ -1,5 +1,4 @@
 // http://www.libpng.org/pub/png/spec/iso/index-object.html
-const std = @import("std");
 
 // CRITICAL CHUNKS
 pub const IHDR = struct {
@@ -56,7 +55,7 @@ pub const iCCP = struct {
     compressed_profile: []u8,
 };
 
-///t0:type 0. t23:type 2 or 3. t4:type 4. t6:type 6.
+/// t0:type 0. t23:type 2 or 3. t4:type 4. t6:type 6.
 pub const sBIT = struct {
     sig_grey_bits_t0: u8,
     sig_red_bits_t23: u8,
