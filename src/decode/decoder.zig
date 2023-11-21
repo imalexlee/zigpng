@@ -255,12 +255,13 @@ pub fn pngDecoder() type {
                 @as(u32, self.original_img_buffer[offset + 1]) << 16 |
                 @as(u32, self.original_img_buffer[offset + 2]) << 8 |
                 @as(u32, self.original_img_buffer[offset + 3]);
-            std.debug.print("gama: {any}\n", .{gama});
+            _ = gama;
+            //std.debug.print("gama: {any}\n", .{gama});
         }
 
         pub fn print(self: *Self) void {
             _ = self;
-            // std.debug.print("width {any}\n", .{self.IHDR.width});
+            //std.debug.print("width {any}\n", .{self.IHDR.width});
             // std.debug.print("height {any}\n", .{self.IHDR.height});
             // std.debug.print("filter method {any}\n", .{self.IHDR.filter_method});
             // std.debug.print("bit_depth {any}\n", .{self.IHDR.bit_depth});
