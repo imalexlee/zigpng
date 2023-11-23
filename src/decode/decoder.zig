@@ -200,6 +200,7 @@ pub fn pngDecoder() type {
             };
 
             var uncompressed_len: c_ulong = ((height * width) * bytes_per_pix) + height;
+
             var uncompressed_buf = try self.uncompressed_allocator.alloc(u8, uncompressed_len);
             self.uncompressed_buf = uncompressed_buf;
             self.uncompressed_len = uncompressed_len;
@@ -231,7 +232,7 @@ pub fn pngDecoder() type {
             }
         }
 
-        /// appends each IDAT chunk data to the list of IDAT data in cases of > 1 IDAT chunks
+        /// appends each IDAT chunk data block to the list of IDAT data in cases of > 1 IDAT chunks
         fn handleIDAT(self: *Self, data_offset: u32, data_length: u32) !void {
             var end_pos = data_offset + data_length;
             const compressed_buf = self.original_img_buffer[data_offset..end_pos];

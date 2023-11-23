@@ -6,6 +6,7 @@ test {
     const std = @import("std");
     std.testing.refAllDecls(@This());
     inline for (.{
-        @import("tests/decode_tests.zig"),
+        @import("tests/decoding_tests/color_filter.zig"),
+        @import("tests/decoding_tests/greyscale_filter.zig"),
     }) |source_file| std.testing.refAllDeclsRecursive(source_file);
 }

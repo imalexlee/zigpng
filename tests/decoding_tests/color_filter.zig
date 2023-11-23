@@ -1,5 +1,5 @@
 const std = @import("std");
-const png_decoder = @import("../src/decode/decoder.zig");
+const png_decoder = @import("../../src/decode/decoder.zig");
 const helpers = @import("helpers.zig");
 
 const testing = std.testing;
