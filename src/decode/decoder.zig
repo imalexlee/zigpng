@@ -23,9 +23,8 @@ pub fn pngDecoder() type {
         /// contains the uncompressed IDAT data only
         uncompressed_buf: []u8,
         uncompressed_allocator: std.mem.Allocator,
-        uncompressed_len: c_ulong,
 
-        bytes_per_pix: u8,
+        sample_size: u8,
 
         IHDR: models.IHDR,
         pHYS: ?models.pHYs = null,
@@ -49,8 +48,7 @@ pub fn pngDecoder() type {
                 .idat_allocator = idatAllocator,
                 .uncompressed_buf = undefined,
                 .uncompressed_allocator = uncompressedAllocator,
-                .uncompressed_len = undefined,
-                .bytes_per_pix = undefined,
+                .sample_size = undefined,
                 .IHDR = undefined,
                 .file_size = undefined,
             };
@@ -81,8 +79,7 @@ pub fn pngDecoder() type {
             self.pHYS = null;
             self.bKGD = null;
             self.sRGB = null;
-            self.uncompressed_len = undefined;
-            self.bytes_per_pix = undefined;
+            self.sample_size = undefined;
             self.IHDR = undefined;
         }
 
@@ -152,7 +149,7 @@ pub fn pngDecoder() type {
                 // gAMA
                 0b01100111_01000001_01001101_01000001 => self.handlegAMA(offset + 8),
                 // IEND
-                0b01001001_01000101_01001110_01000100 => try self.unFilterIDAT(self.uncompressed_buf, self.bytes_per_pix),
+                0b01001001_01000101_01001110_01000100 => try self.unFilterIDAT(self.uncompressed_buf, self.sample_size),
                 else => std.debug.print("unhandled chunk {c}{c}{c}{c}\n", .{
                     self.original_img_buffer[offset + 4],
                     self.original_img_buffer[offset + 5],
@@ -182,28 +179,35 @@ pub fn pngDecoder() type {
             const filter_method: u8 = self.original_img_buffer[27];
             const interlace_method: u8 = self.original_img_buffer[28];
 
-            var bytes_per_pix: u8 = switch (color_type) {
+            var sample_size: u8 = switch (color_type) {
                 // match values represent color type
-                // https://www.w3.org/TR/png/#3colourType
-                // 1 byte: greyscale luminance
+                // 1: greyscale luminance
                 0 => 1,
-                // 3 bytes: R,G,B
+                // 3: R,G,B
                 2 => 3,
-                // 1 byte: pallete index
+                // 1: pallete index
                 3 => 1,
-                // 2 bytes: greyscale luminance + Alpha
+                // 2: greyscale luminance + alpha
                 4 => 2,
-                // 4 bytes: R,G,B,A
+                // 4: R,G,B,A
                 6 => 4,
 
                 else => unreachable,
             };
 
-            var uncompressed_len: c_ulong = ((height * width) * bytes_per_pix) + height;
+            var bits_per_line = width * sample_size * bit_depth;
+            // length of BYTES needed to store all pixel data w/o filter byte
+            var pixel_len = switch (bit_depth) {
+                8 => sample_size * (height * width),
+                16 => sample_size * 2 * (height * width),
+                else => if (bits_per_line % 8 == 0) bits_per_line / 8 * height else (bits_per_line / 8 + 1) * height,
+            };
+
+            // amount of total bytes needed to store each scanline with their corresponding filter byte
+            var uncompressed_len: c_ulong = pixel_len + height;
 
             var uncompressed_buf = try self.uncompressed_allocator.alloc(u8, uncompressed_len);
             self.uncompressed_buf = uncompressed_buf;
-            self.uncompressed_len = uncompressed_len;
 
             self.IHDR = .{
                 .height = height,
@@ -214,7 +218,7 @@ pub fn pngDecoder() type {
                 .filter_method = filter_method,
                 .interlace_method = interlace_method,
             };
-            self.bytes_per_pix = bytes_per_pix;
+            self.sample_size = if (bit_depth < 9) sample_size else sample_size * 2;
         }
 
         /// In PNG spec, crc is derived from the bytes present in the chunk type and chunk data
@@ -239,15 +243,22 @@ pub fn pngDecoder() type {
             _ = try self.idat_list.appendSlice(compressed_buf);
         }
 
-        fn unFilterIDAT(self: *Self, idat_buffer: []u8, bytes_per_pix: u8) !void {
-            _ = zlib.uncompress(self.uncompressed_buf.ptr, &self.uncompressed_len, self.idat_list.items.ptr, self.idat_list.items.len);
-            const line_width = (self.IHDR.width * bytes_per_pix) + 1;
+        fn unFilterIDAT(self: *Self, idat_buffer: []u8, sample_size: u8) !void {
+            var dest_len: c_ulong = self.uncompressed_buf.len;
+            _ = zlib.uncompress(self.uncompressed_buf.ptr, &dest_len, self.idat_list.items.ptr, self.idat_list.items.len);
+            const line_width = (self.IHDR.width * sample_size) + 1;
+
+            var bits_per_line = self.IHDR.width * self.sample_size * self.IHDR.bit_depth;
+            var bytes_in_scanline = if (bits_per_line % 8 == 0) bits_per_line / 8 else (bits_per_line / 8 + 1);
+
+            std.debug.print("line width: {any} ", .{line_width});
+            std.debug.print("sample_size: {any}\n", .{sample_size});
             for (0..self.IHDR.height) |i| {
-                switch (idat_buffer[i * line_width]) {
-                    1 => unfliter.unFilterSub(idat_buffer, i, line_width, bytes_per_pix),
-                    2 => unfliter.unFilterUp(idat_buffer, i, line_width, bytes_per_pix),
-                    3 => unfliter.unFilterAverage(idat_buffer, i, line_width, bytes_per_pix),
-                    4 => unfliter.unFilterPaeth(idat_buffer, i, line_width, bytes_per_pix),
+                switch (idat_buffer[i * bytes_in_scanline]) {
+                    1 => unfliter.unFilterSub(idat_buffer, i, line_width, sample_size),
+                    2 => unfliter.unFilterUp(idat_buffer, i, line_width, sample_size),
+                    3 => unfliter.unFilterAverage(idat_buffer, i, line_width, sample_size),
+                    4 => unfliter.unFilterPaeth(idat_buffer, i, line_width, sample_size),
                     // filter was 0, don't do anything
                     else => {},
                 }
