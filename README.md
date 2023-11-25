@@ -38,12 +38,6 @@ This project is licensed under the MIT License.
 
 If you have any questions or need help, please open an issue or contact me directly.
 
-
-## Acknowledgements
-
-This project is a part of my learning process in Zig. I appreciate the Zig community for their support and guidance.
-
-
 ## References
 
 - [Zig Documentation](https://ziglang.org/documentation/)
