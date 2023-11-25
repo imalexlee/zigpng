@@ -3,74 +3,74 @@ const std = @import("std");
 /// Unfilters a filter type 1 scanline
 ///
 /// Takes a full scanline INCLUDING the filter byte
-pub fn unFilterSub(idat_buffer: []u8, line_num: usize, line_width: u32, bytes_per_pix: u8) void {
-    var i: u32 = bytes_per_pix + 1;
+pub fn unFilterSub(idat_buffer: []u8, line_num: usize, line_width: u32, sample_size: u8) void {
+    var i: u32 = sample_size + 1;
     while (i < line_width) {
         var start_idx = line_num * line_width + i;
-        for (0..bytes_per_pix) |addition_idx| {
+        for (0..sample_size) |addition_idx| {
             idat_buffer[start_idx + addition_idx] +%=
-                idat_buffer[start_idx + addition_idx - bytes_per_pix];
+                idat_buffer[start_idx + addition_idx - sample_size];
         }
-        i += bytes_per_pix;
+        i += sample_size;
     }
 }
 
 /// Unfilters a filter type 2 scanline
 ///
 /// Takes a full scanline INCLUDING the filter byte
-pub fn unFilterUp(idat_buffer: []u8, line_num: usize, line_width: u32, bytes_per_pix: u8) void {
+pub fn unFilterUp(idat_buffer: []u8, line_num: usize, line_width: u32, sample_size: u8) void {
     if (line_num == 0) return;
     var i: u32 = 1;
     while (i < line_width) {
         var start_idx = line_num * line_width + i;
         var prev_line_start_idx = (line_num - 1) * line_width + i;
-        for (0..bytes_per_pix) |addition_idx| {
+        for (0..sample_size) |addition_idx| {
             idat_buffer[start_idx + addition_idx] +%=
                 idat_buffer[prev_line_start_idx + addition_idx];
         }
-        i += bytes_per_pix;
+        i += sample_size;
     }
 }
 
 /// Unfilters a filter type 3 scanline
 ///
 /// Takes a full scanline INCLUDING the filter byte
-pub fn unFilterAverage(idat_buffer: []u8, line_num: usize, line_width: u32, bytes_per_pix: u8) void {
+pub fn unFilterAverage(idat_buffer: []u8, line_num: usize, line_width: u32, sample_size: u8) void {
     var i: u32 = 1;
     while (i < line_width) {
         var start_idx = line_num * line_width + i;
-        var a_line_pos = i -| bytes_per_pix;
+        var a_line_pos = i -| sample_size;
         var a_start = line_num * line_width + a_line_pos;
         var b_start = (line_num -| 1) * line_width + i;
-        for (0..bytes_per_pix) |average_idx| {
+        for (0..sample_size) |average_idx| {
             var a = @as(f32, @floatFromInt(if (a_line_pos == 0) 0 else idat_buffer[a_start + average_idx]));
             var b = @as(f32, @floatFromInt(if (line_num == 0) 0 else idat_buffer[b_start + average_idx]));
             idat_buffer[start_idx + average_idx] +%= @intFromFloat(@floor((a + b) / 2));
         }
-        i += bytes_per_pix;
+        i += sample_size;
     }
 }
 
 /// Unfilters a filter type 4 scanline
 ///
 /// Takes a full scanline INCLUDING the filter byte
-pub fn unFilterPaeth(idat_buffer: []u8, line_num: usize, line_width: u32, bytes_per_pix: u8) void {
+pub fn unFilterPaeth(idat_buffer: []u8, line_num: usize, line_width: u32, sample_size: u8) void {
     var i: u32 = 1;
     while (i < line_width) {
         var start_idx = line_num * line_width + i;
-        var a_line_pos = i -| bytes_per_pix;
-        var c_line_pos = i -| bytes_per_pix;
+        var a_line_pos = i -| sample_size;
+        var c_line_pos = i -| sample_size;
         var a_start = line_num * line_width + a_line_pos;
         var b_start = (line_num -| 1) * line_width + i;
         var c_start = (line_num -| 1) * line_width + c_line_pos;
 
-        for (0..bytes_per_pix) |paeth_idx| {
+        for (0..sample_size) |paeth_idx| {
             var a = if (a_line_pos == 0) 0 else idat_buffer[a_start + paeth_idx];
             var b = if (line_num == 0) 0 else idat_buffer[b_start + paeth_idx];
             var c = if (line_num == 0 or c_line_pos == 0) 0 else idat_buffer[c_start + paeth_idx];
             idat_buffer[start_idx + paeth_idx] +%= paethPredictor(a, b, c);
         }
-        i += bytes_per_pix;
+        i += sample_size;
     }
 }
 

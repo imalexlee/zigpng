@@ -246,13 +246,11 @@ pub fn pngDecoder() type {
         fn unFilterIDAT(self: *Self, idat_buffer: []u8, sample_size: u8) !void {
             var dest_len: c_ulong = self.uncompressed_buf.len;
             _ = zlib.uncompress(self.uncompressed_buf.ptr, &dest_len, self.idat_list.items.ptr, self.idat_list.items.len);
-            const line_width = (self.IHDR.width * sample_size) + 1;
 
             var bits_per_line = self.IHDR.width * self.sample_size * self.IHDR.bit_depth;
             var bytes_in_scanline = if (bits_per_line % 8 == 0) bits_per_line / 8 else (bits_per_line / 8 + 1);
+            const line_width = bytes_in_scanline + 1;
 
-            std.debug.print("line width: {any} ", .{line_width});
-            std.debug.print("sample_size: {any}\n", .{sample_size});
             for (0..self.IHDR.height) |i| {
                 switch (idat_buffer[i * bytes_in_scanline]) {
                     1 => unfliter.unFilterSub(idat_buffer, i, line_width, sample_size),

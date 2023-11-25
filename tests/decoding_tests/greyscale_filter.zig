@@ -56,15 +56,15 @@ test "decode filter type 3 greyscale image" {
     try testing.expect(image.IHDR.height == 32);
 }
 
-//test "decode multiple filter type greyscale image" {
-//    const file_path = "samples/filtering/greyscale/f99n0g04.png";
-//    const pngDecoder = png_decoder.pngDecoder();
-//    var image = try pngDecoder.init(helpers.zigpng_test_allocator, helpers.zigpng_test_allocator);
-//    defer image.deinit();
-//
-//    try image.loadFileFromPath(helpers.zigpng_test_allocator, file_path, .{});
-//    try image.readChunks();
-//
-//    try testing.expect(image.IHDR.width == 32);
-//    try testing.expect(image.IHDR.height == 32);
-//}
+test "decode multiple filter type greyscale image" {
+    const file_path = "samples/filtering/greyscale/f99n0g04.png";
+    const pngDecoder = png_decoder.pngDecoder();
+    var image = try pngDecoder.init(helpers.zigpng_test_allocator, helpers.zigpng_test_allocator);
+    defer image.deinit();
+
+    try image.loadFileFromPath(helpers.zigpng_test_allocator, file_path, .{});
+    try image.readChunks();
+
+    try testing.expect(image.IHDR.width == 32);
+    try testing.expect(image.IHDR.height == 32);
+}
