@@ -15,6 +15,7 @@ test "decode filter type 0 greyscale image" {
 
     try testing.expect(image.IHDR.width == 32);
     try testing.expect(image.IHDR.height == 32);
+    try testing.expect(image.pixel_buf.len == 1024);
 }
 
 test "decode filter type 1 greyscale image" {
@@ -28,6 +29,7 @@ test "decode filter type 1 greyscale image" {
 
     try testing.expect(image.IHDR.width == 32);
     try testing.expect(image.IHDR.height == 32);
+    try testing.expect(image.pixel_buf.len == 1024);
 }
 
 test "decode filter type 2 greyscale image" {
@@ -41,6 +43,7 @@ test "decode filter type 2 greyscale image" {
 
     try testing.expect(image.IHDR.width == 32);
     try testing.expect(image.IHDR.height == 32);
+    try testing.expect(image.pixel_buf.len == 1024);
 }
 
 test "decode filter type 3 greyscale image" {
@@ -54,6 +57,7 @@ test "decode filter type 3 greyscale image" {
 
     try testing.expect(image.IHDR.width == 32);
     try testing.expect(image.IHDR.height == 32);
+    try testing.expect(image.pixel_buf.len == 1024);
 }
 
 test "decode multiple filter type greyscale image" {
@@ -65,6 +69,9 @@ test "decode multiple filter type greyscale image" {
     try image.loadFileFromPath(helpers.zigpng_test_allocator, file_path, .{});
     try image.readChunks();
 
+    //    image.print();
     try testing.expect(image.IHDR.width == 32);
     try testing.expect(image.IHDR.height == 32);
+    try testing.expect(image.pixel_buf.len == 512);
+    try testing.expect(image.IHDR.bit_depth == 4);
 }

@@ -17,11 +17,9 @@ pub fn pngDecoder() type {
         original_img_allocator: std.mem.Allocator,
         file_size: u64 = 0,
 
-        /// holds the collection of compressed IDAT chunk data in a consecutive slice
         idat_list: std.ArrayList(u8),
         idat_allocator: std.mem.Allocator,
-        /// contains the uncompressed IDAT data only
-        uncompressed_buf: []u8,
+        pixel_buf: []u8,
         uncompressed_allocator: std.mem.Allocator,
 
         sample_size: u8,
@@ -34,8 +32,6 @@ pub fn pngDecoder() type {
         /// idat_allocator used by ArrayList to store a consecutive u8 slice made from all appended, uncompressed, IDAT chunk data
         ///
         /// uncompressed_allocator used by zlib to store just the decompressed IDAT chunk data with filter byte intact at scanline start
-        ///
-        /// buffer and file size are derived from the actual total image buffer and its length
         pub fn init(idatAllocator: std.mem.Allocator, uncompressedAllocator: std.mem.Allocator) !Self {
             var idat_list = std.ArrayList(u8).init(
                 idatAllocator,
@@ -46,36 +42,30 @@ pub fn pngDecoder() type {
                 .original_img_buffer = undefined,
                 .original_img_allocator = undefined,
                 .idat_allocator = idatAllocator,
-                .uncompressed_buf = undefined,
+                .pixel_buf = undefined,
                 .uncompressed_allocator = uncompressedAllocator,
                 .sample_size = undefined,
                 .IHDR = undefined,
                 .file_size = undefined,
             };
         }
-        /// deinits the idat_list holding compressed IDAT chunk data
-        ///
-        /// frees the uncompressed_buffer to free the uncompressed IDAT chunk Data
-        ///
+
         /// Cannot reuse this decoder instance after this operation
         pub fn deinit(self: *Self) void {
             self.idat_list.deinit();
             self.original_img_allocator.free(self.original_img_buffer);
-            self.uncompressed_allocator.free(self.uncompressed_buf);
+            self.uncompressed_allocator.free(self.pixel_buf);
             self.* = undefined;
         }
 
         /// Resets the decoder to its original state while sill holding references to both allocators
-        ///
-        ///
-        /// Frees the compressed and uncompressed IDAT chunk data from decoder
         pub fn reset(self: *Self) void {
             self.original_img_allocator(self.original_img_allocator);
             self.original_img_buffer = undefined;
             self.idat_list.clearAndFree();
-            self.uncompressed_allocator.free(self.uncompressed_buf);
+            self.uncompressed_allocator.free(self.pixel_buf);
             self.file_size = undefined;
-            self.uncompressed_buf = undefined;
+            self.pixel_buf = undefined;
             self.pHYS = null;
             self.bKGD = null;
             self.sRGB = null;
@@ -84,8 +74,6 @@ pub fn pngDecoder() type {
         }
 
         /// loads an image from a give path in the current working directory
-        ///
-        /// stores the image data in the original_image_buffer slice
         pub fn loadFileFromPath(self: *Self, allocator: std.mem.Allocator, file_path: []const u8, flags: std.fs.File.OpenFlags) !void {
             const file = try std.fs.cwd().openFile(file_path, flags);
             defer file.close();
@@ -149,7 +137,7 @@ pub fn pngDecoder() type {
                 // gAMA
                 0b01100111_01000001_01001101_01000001 => self.handlegAMA(offset + 8),
                 // IEND
-                0b01001001_01000101_01001110_01000100 => try self.unFilterIDAT(self.uncompressed_buf, self.sample_size),
+                0b01001001_01000101_01001110_01000100 => try self.unFilterIDAT(),
                 else => std.debug.print("unhandled chunk {c}{c}{c}{c}\n", .{
                     self.original_img_buffer[offset + 4],
                     self.original_img_buffer[offset + 5],
@@ -195,20 +183,6 @@ pub fn pngDecoder() type {
                 else => unreachable,
             };
 
-            var bits_per_line = width * sample_size * bit_depth;
-            // length of BYTES needed to store all pixel data w/o filter byte
-            var pixel_len = switch (bit_depth) {
-                8 => sample_size * (height * width),
-                16 => sample_size * 2 * (height * width),
-                else => if (bits_per_line % 8 == 0) bits_per_line / 8 * height else (bits_per_line / 8 + 1) * height,
-            };
-
-            // amount of total bytes needed to store each scanline with their corresponding filter byte
-            var uncompressed_len: c_ulong = pixel_len + height;
-
-            var uncompressed_buf = try self.uncompressed_allocator.alloc(u8, uncompressed_len);
-            self.uncompressed_buf = uncompressed_buf;
-
             self.IHDR = .{
                 .height = height,
                 .width = width,
@@ -243,24 +217,40 @@ pub fn pngDecoder() type {
             _ = try self.idat_list.appendSlice(compressed_buf);
         }
 
-        fn unFilterIDAT(self: *Self, idat_buffer: []u8, sample_size: u8) !void {
-            var dest_len: c_ulong = self.uncompressed_buf.len;
-            _ = zlib.uncompress(self.uncompressed_buf.ptr, &dest_len, self.idat_list.items.ptr, self.idat_list.items.len);
-
+        fn unFilterIDAT(self: *Self) !void {
             var bits_per_line = self.IHDR.width * self.sample_size * self.IHDR.bit_depth;
-            var bytes_in_scanline = if (bits_per_line % 8 == 0) bits_per_line / 8 else (bits_per_line / 8 + 1);
-            const line_width = bytes_in_scanline + 1;
+            // length of BYTES needed to store all pixel data w/o filter byte
+            var pixel_len = switch (self.IHDR.bit_depth) {
+                8 => self.sample_size * (self.IHDR.height * self.IHDR.width),
+                16 => self.sample_size * 2 * (self.IHDR.height * self.IHDR.width),
+                else => if (bits_per_line % 8 == 0) bits_per_line / 8 * self.IHDR.height else (bits_per_line / 8 + 1) * self.IHDR.height,
+            };
+
+            var uncompressed_len = pixel_len + self.IHDR.height;
+
+            var uncompressed_buf = try self.uncompressed_allocator.alloc(u8, uncompressed_len);
+            defer self.uncompressed_allocator.free(uncompressed_buf);
+
+            var pixel_list = try std.ArrayList(u8).initCapacity(self.uncompressed_allocator, pixel_len);
+
+            var dest_len: c_ulong = uncompressed_buf.len;
+            _ = zlib.uncompress(uncompressed_buf.ptr, &dest_len, self.idat_list.items.ptr, self.idat_list.items.len);
+
+            var line_width = if (bits_per_line % 8 == 0) bits_per_line / 8 + 1 else (bits_per_line / 8 + 1) + 1;
 
             for (0..self.IHDR.height) |i| {
-                switch (idat_buffer[i * bytes_in_scanline]) {
-                    1 => unfliter.unFilterSub(idat_buffer, i, line_width, sample_size),
-                    2 => unfliter.unFilterUp(idat_buffer, i, line_width, sample_size),
-                    3 => unfliter.unFilterAverage(idat_buffer, i, line_width, sample_size),
-                    4 => unfliter.unFilterPaeth(idat_buffer, i, line_width, sample_size),
-                    // filter was 0, don't do anything
+                switch (uncompressed_buf[i * line_width]) {
+                    1 => unfliter.unFilterSub(uncompressed_buf, i, line_width, self.sample_size),
+                    2 => unfliter.unFilterUp(uncompressed_buf, i, line_width, self.sample_size),
+                    3 => unfliter.unFilterAverage(uncompressed_buf, i, line_width, self.sample_size),
+                    4 => unfliter.unFilterPaeth(uncompressed_buf, i, line_width, self.sample_size),
                     else => {},
                 }
+                var start_pos = i * line_width + 1;
+                var end_pos = start_pos + line_width - 1;
+                try pixel_list.appendSlice(uncompressed_buf[start_pos..end_pos]);
             }
+            self.pixel_buf = pixel_list.items;
         }
 
         fn handlepHYs(self: *Self, offset: u32) void {
@@ -322,7 +312,6 @@ pub fn pngDecoder() type {
         }
 
         pub fn print(self: *Self) void {
-            _ = self;
             //std.debug.print("width {any}\n", .{self.IHDR.width});
             // std.debug.print("height {any}\n", .{self.IHDR.height});
             // std.debug.print("filter method {any}\n", .{self.IHDR.filter_method});
@@ -335,10 +324,11 @@ pub fn pngDecoder() type {
             // std.debug.print("blue: {any}\n", .{self.bKGD.?.blue});
             // std.debug.print("palette_index: {any}\n", .{self.bKGD.?.palette_index});
             // std.debug.print("rendering_intent: {any}\n", .{self.sRGB.?.rendering_intent});
-            // for (0..self.uncompressed_len) |i| {
-            //     std.debug.print("val at {d}: {any}\n", .{ i, self.uncompressed_buf[i] });
-            // }
+            for (0..self.pixel_buf.len) |i| {
+                std.debug.print("val at {d}: {any}\n", .{ i, self.pixel_buf[i] });
+            }
             // std.debug.print("idat_list.len after: {any}\n\n", .{self.idat_list.items.len});
+
         }
     };
 }
