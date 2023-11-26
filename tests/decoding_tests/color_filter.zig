@@ -42,7 +42,6 @@ test "decode filter type 2 color image" {
     try testing.expect(image.IHDR.width == 32);
     try testing.expect(image.IHDR.height == 32);
 }
-
 test "decode filter type 3 color image" {
     const file_path = "samples/filtering/color/f03n2c08.png";
     const pngDecoder = png_decoder.pngDecoder();
@@ -51,7 +50,8 @@ test "decode filter type 3 color image" {
 
     try image.loadFileFromPath(helpers.zigpng_test_allocator, file_path, .{});
     try image.readChunks();
-
     try testing.expect(image.IHDR.width == 32);
     try testing.expect(image.IHDR.height == 32);
+    try testing.expect(image.pixel_buf.len == 3072);
+    try testing.expect(image.IHDR.bit_depth == 8);
 }
