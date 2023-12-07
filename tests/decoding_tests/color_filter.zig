@@ -11,10 +11,11 @@ test "decode filter type 0 color image" {
     defer image.deinit();
 
     try image.loadFileFromPath(helpers.zigpng_test_allocator, file_path, .{});
-    try image.readChunks();
-
+    try image.readInfo();
+    try image.readImageData();
     try testing.expect(image.IHDR.width == 32);
     try testing.expect(image.IHDR.height == 32);
+    try testing.expect(image.sample_size == 3);
 }
 
 test "decode filter type 1 color image" {
@@ -24,8 +25,8 @@ test "decode filter type 1 color image" {
     defer image.deinit();
 
     try image.loadFileFromPath(helpers.zigpng_test_allocator, file_path, .{});
-    try image.readChunks();
-
+    try image.readInfo();
+    try image.readImageData();
     try testing.expect(image.IHDR.width == 32);
     try testing.expect(image.IHDR.height == 32);
 }
@@ -37,8 +38,8 @@ test "decode filter type 2 color image" {
     defer image.deinit();
 
     try image.loadFileFromPath(helpers.zigpng_test_allocator, file_path, .{});
-    try image.readChunks();
-
+    try image.readInfo();
+    try image.readImageData();
     try testing.expect(image.IHDR.width == 32);
     try testing.expect(image.IHDR.height == 32);
 }
@@ -49,7 +50,8 @@ test "decode filter type 3 color image" {
     defer image.deinit();
 
     try image.loadFileFromPath(helpers.zigpng_test_allocator, file_path, .{});
-    try image.readChunks();
+    try image.readInfo();
+    try image.readImageData();
     try testing.expect(image.IHDR.width == 32);
     try testing.expect(image.IHDR.height == 32);
     try testing.expect(image.pixel_buf.len == 3072);

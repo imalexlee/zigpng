@@ -17,6 +17,8 @@ pub fn pngDecoder() type {
         original_img_allocator: std.mem.Allocator,
         file_size: u64 = 0,
 
+        // the starting index of the first idat chunk type
+        idat_start: u32,
         idat_list: std.ArrayList(u8),
         idat_allocator: std.mem.Allocator,
         pixel_buf: []u8,
@@ -47,6 +49,7 @@ pub fn pngDecoder() type {
                 .sample_size = undefined,
                 .IHDR = undefined,
                 .file_size = undefined,
+                .idat_start = undefined,
             };
         }
 
@@ -88,10 +91,9 @@ pub fn pngDecoder() type {
             self.file_size = try file.getEndPos();
             self.original_img_buffer = try allocator.alloc(u8, self.file_size);
             _ = try file.read(self.original_img_buffer);
-            self.original_img_allocator = allocator;
         }
 
-        pub fn readChunks(self: *Self) !void {
+        pub fn readInfo(self: *Self) !void {
             inline for (PNG_SIGNATURE, 0..) |value, i| {
                 if (value != self.original_img_buffer[i]) {
                     return PNGReadError.NotPNG;
@@ -101,11 +103,16 @@ pub fn pngDecoder() type {
             // start after the PNG signature, at byte index 8
             var offset: u32 = 8;
             while (offset < self.file_size) {
-                offset += try self.read_chunk(offset);
+                var temp: u32 = try self.readInfoChunk(offset);
+                if (temp == 0) {
+                    break;
+                }
+                offset += temp;
             }
+            self.idat_start = offset;
         }
 
-        fn read_chunk(self: *Self, offset: u32) !u32 {
+        fn readInfoChunk(self: *Self, offset: u32) !u32 {
             const data_length: u32 =
                 @as(u32, self.original_img_buffer[offset]) << 24 |
                 @as(u32, self.original_img_buffer[offset + 1]) << 16 |
@@ -127,7 +134,9 @@ pub fn pngDecoder() type {
                 //IHDR
                 0b01001001_01001000_01000100_01010010 => try self.handleIHDR(),
                 // IDAT
-                0b01001001_01000100_01000001_01010100 => try self.handleIDAT(offset + 8, data_length),
+                0b01001001_01000100_01000001_01010100 => {
+                    return 0;
+                },
                 // pHYs
                 0b01110000_01001000_01011001_01110011 => self.handlepHYs(offset + 8),
                 // bKGD
@@ -136,8 +145,6 @@ pub fn pngDecoder() type {
                 0b01110011_01010010_01000111_01000010 => self.handlesRGB(offset + 8),
                 // gAMA
                 0b01100111_01000001_01001101_01000001 => self.handlegAMA(offset + 8),
-                // IEND
-                0b01001001_01000101_01001110_01000100 => try self.unFilterIDAT(),
                 else => std.debug.print("unhandled chunk {c}{c}{c}{c}\n", .{
                     self.original_img_buffer[offset + 4],
                     self.original_img_buffer[offset + 5],
@@ -147,6 +154,45 @@ pub fn pngDecoder() type {
             }
             // 4 byte length + 4 byte type + {{data_length}} data + 4 byte crc
             return data_length + 12;
+        }
+        fn readImageDataChunk(self: *Self, offset: u32) !u32 {
+            const data_length: u32 =
+                @as(u32, self.original_img_buffer[offset]) << 24 |
+                @as(u32, self.original_img_buffer[offset + 1]) << 16 |
+                @as(u32, self.original_img_buffer[offset + 2]) << 8 |
+                @as(u32, self.original_img_buffer[offset + 3]);
+
+            const data_type: u32 =
+                @as(u32, self.original_img_buffer[offset + 4]) << 24 |
+                @as(u32, self.original_img_buffer[offset + 5]) << 16 |
+                @as(u32, self.original_img_buffer[offset + 6]) << 8 |
+                @as(u32, self.original_img_buffer[offset + 7]);
+
+            // initialize CRC
+            var crc = zlib.crc32(0, zlib.Z_NULL, 0);
+
+            try self.handleCRC(&crc, offset + 4, data_length);
+
+            switch (data_type) {
+                // IDAT
+                0b01001001_01000100_01000001_01010100 => try self.handleIDAT(offset + 8, data_length),
+                // IEND
+                0b01001001_01000101_01001110_01000100 => try self.unFilterIDAT(),
+                else => std.debug.print("unhandled chunk {c}{c}{c}{c}\n", .{
+                    self.original_img_buffer[offset + 4],
+                    self.original_img_buffer[offset + 5],
+                    self.original_img_buffer[offset + 6],
+                    self.original_img_buffer[offset + 7],
+                }),
+            }
+            return data_length + 12;
+        }
+
+        pub fn readImageData(self: *Self) !void {
+            var offset: u32 = self.idat_start;
+            while (offset < self.file_size) {
+                offset += try self.readImageDataChunk(offset);
+            }
         }
 
         pub fn handleIHDR(self: *Self) !void {
