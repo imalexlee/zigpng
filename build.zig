@@ -1,4 +1,5 @@
 const Build = @import("std").Build;
+const std = @import("std");
 
 pub fn build(b: *Build) void {
     const target = b.standardTargetOptions(.{});
@@ -17,6 +18,7 @@ pub fn build(b: *Build) void {
 
     zigpng_build_test.linkLibC();
     zigpng_build_test.linkSystemLibrary("z");
+
     b.installArtifact(zigpng_build_test);
 
     const run_test_cmd = b.addRunArtifact(zigpng_build_test);

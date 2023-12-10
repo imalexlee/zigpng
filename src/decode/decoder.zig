@@ -1,5 +1,5 @@
 const std = @import("std");
-const models = @import("./models.zig");
+const chunks = @import("./chunks.zig");
 const unfliter = @import("./unfilter.zig");
 const zlib = @cImport(@cInclude("zlib.h"));
 
@@ -8,6 +8,14 @@ const PNG_SIGNATURE = [8]u8{ 137, 80, 78, 71, 13, 10, 26, 10 };
 const PNGReadError = error{
     NotPNG,
     CorruptedCRC,
+};
+
+/// defines whether or not to process the following
+const DecoderConfig = struct {
+    checksum: bool = true,
+    pHYS: bool = false,
+    bKGD: bool = false,
+    sRGB: bool = false,
 };
 
 pub fn pngDecoder() type {
@@ -26,15 +34,17 @@ pub fn pngDecoder() type {
 
         sample_size: u8,
 
-        IHDR: models.IHDR,
-        pHYS: ?models.pHYs = null,
-        bKGD: ?models.bKGD = null,
-        sRGB: ?models.sRGB = null,
+        IHDR: chunks.IHDR,
+        pHYS: ?chunks.pHYs = null,
+        bKGD: ?chunks.bKGD = null,
+        sRGB: ?chunks.sRGB = null,
+
+        config: DecoderConfig,
 
         /// idat_allocator used by ArrayList to store a consecutive u8 slice made from all appended, uncompressed, IDAT chunk data
         ///
         /// uncompressed_allocator used by zlib to store just the decompressed IDAT chunk data with filter byte intact at scanline start
-        pub fn init(idatAllocator: std.mem.Allocator, uncompressedAllocator: std.mem.Allocator) !Self {
+        pub fn init(idatAllocator: std.mem.Allocator, uncompressedAllocator: std.mem.Allocator, config: DecoderConfig) !Self {
             var idat_list = std.ArrayList(u8).init(
                 idatAllocator,
             );
@@ -50,6 +60,7 @@ pub fn pngDecoder() type {
                 .IHDR = undefined,
                 .file_size = undefined,
                 .idat_start = undefined,
+                .config = config,
             };
         }
 
@@ -125,10 +136,12 @@ pub fn pngDecoder() type {
                 @as(u32, self.original_img_buffer[offset + 6]) << 8 |
                 @as(u32, self.original_img_buffer[offset + 7]);
 
-            // initialize CRC
-            var crc = zlib.crc32(0, zlib.Z_NULL, 0);
+            if (self.config.checksum) {
+                // initialize CRC
+                var crc = zlib.crc32(0, zlib.Z_NULL, 0);
 
-            try self.handleCRC(&crc, offset + 4, data_length);
+                try self.handleCRC(&crc, offset + 4, data_length);
+            }
 
             switch (data_type) {
                 //IHDR
@@ -138,11 +151,11 @@ pub fn pngDecoder() type {
                     return 0;
                 },
                 // pHYs
-                0b01110000_01001000_01011001_01110011 => self.handlepHYs(offset + 8),
+                0b01110000_01001000_01011001_01110011 => if (self.config.pHYS) self.handlepHYs(offset + 8),
                 // bKGD
-                0b01100010_01001011_01000111_01000100 => self.handlebKGD(offset + 8),
+                0b01100010_01001011_01000111_01000100 => if (self.config.bKGD) self.handlebKGD(offset + 8),
                 // sRGB
-                0b01110011_01010010_01000111_01000010 => self.handlesRGB(offset + 8),
+                0b01110011_01010010_01000111_01000010 => if (self.config.sRGB) self.handlesRGB(offset + 8),
                 // gAMA
                 0b01100111_01000001_01001101_01000001 => self.handlegAMA(offset + 8),
                 else => std.debug.print("unhandled chunk {c}{c}{c}{c}\n", .{
@@ -155,6 +168,14 @@ pub fn pngDecoder() type {
             // 4 byte length + 4 byte type + {{data_length}} data + 4 byte crc
             return data_length + 12;
         }
+
+        pub fn readImageData(self: *Self) !void {
+            var offset: u32 = self.idat_start;
+            while (offset < self.file_size - 11) {
+                offset += try self.readImageDataChunk(offset);
+            }
+        }
+
         fn readImageDataChunk(self: *Self, offset: u32) !u32 {
             const data_length: u32 =
                 @as(u32, self.original_img_buffer[offset]) << 24 |
@@ -168,10 +189,12 @@ pub fn pngDecoder() type {
                 @as(u32, self.original_img_buffer[offset + 6]) << 8 |
                 @as(u32, self.original_img_buffer[offset + 7]);
 
-            // initialize CRC
-            var crc = zlib.crc32(0, zlib.Z_NULL, 0);
+            if (self.config.checksum) {
+                // initialize CRC
+                var crc = zlib.crc32(0, zlib.Z_NULL, 0);
 
-            try self.handleCRC(&crc, offset + 4, data_length);
+                try self.handleCRC(&crc, offset + 4, data_length);
+            }
 
             switch (data_type) {
                 // IDAT
@@ -186,13 +209,6 @@ pub fn pngDecoder() type {
                 }),
             }
             return data_length + 12;
-        }
-
-        pub fn readImageData(self: *Self) !void {
-            var offset: u32 = self.idat_start;
-            while (offset < self.file_size) {
-                offset += try self.readImageDataChunk(offset);
-            }
         }
 
         pub fn handleIHDR(self: *Self) !void {
@@ -238,7 +254,7 @@ pub fn pngDecoder() type {
                 .filter_method = filter_method,
                 .interlace_method = interlace_method,
             };
-            self.sample_size = if (bit_depth < 9) sample_size else sample_size * 2;
+            self.sample_size = sample_size;
         }
 
         /// In PNG spec, crc is derived from the bytes present in the chunk type and chunk data
@@ -354,7 +370,6 @@ pub fn pngDecoder() type {
                 @as(u32, self.original_img_buffer[offset + 2]) << 8 |
                 @as(u32, self.original_img_buffer[offset + 3]);
             _ = gama;
-            //std.debug.print("gama: {any}\n", .{gama});
         }
 
         pub fn print(self: *Self) void {

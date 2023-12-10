@@ -1,6 +1,7 @@
 zig-cache/
 zig-out/
 samples/
+libs/
 
 .vscode
 main
