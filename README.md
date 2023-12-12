@@ -1,6 +1,6 @@
-# PNG Decoder/Encoder in Zig
+# PNG Decoder in Zig
 
-This project is a PNG decoding and encoding library written in Zig. The decoding part is complete, and further testing is ongoing. The encoding part is still under development.
+This project is a PNG decoding library written in Zig. Current testing still ongoing!
 
 ## Table of Contents
 
