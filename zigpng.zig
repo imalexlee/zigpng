@@ -10,7 +10,7 @@ test {
         @import("tests/decoding_tests/greyscale_filter.zig"),
         @import("tests/decoding_tests/color_idat_variations.zig"),
         @import("tests/decoding_tests/greyscale_idat_variations.zig"),
-        // @import("tests/decoding_tests/odd_sizes.zig"),
+        @import("tests/decoding_tests/odd_sizes.zig"),
         @import("tests/decoding_tests/helpers.zig"),
     }) |source_file| std.testing.refAllDeclsRecursive(source_file);
 }

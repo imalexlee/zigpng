@@ -16,6 +16,7 @@ test "decode filter type 0 color image" {
     try testing.expect(image.IHDR.width == 32);
     try testing.expect(image.IHDR.height == 32);
     try testing.expect(image.sample_size == 3);
+    try testing.expect(image.pixel_buf.len == 3072);
 }
 test "decode filter type 1 color image" {
     const file_path = "samples/filtering/color/f01n2c08.png";

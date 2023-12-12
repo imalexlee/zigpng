@@ -8,6 +8,7 @@ const PNG_SIGNATURE = [8]u8{ 137, 80, 78, 71, 13, 10, 26, 10 };
 const PNGReadError = error{
     NotPNG,
     CorruptedCRC,
+    PLTENotDivisibleByThree,
 };
 
 /// defines whether or not to process the following
@@ -16,6 +17,8 @@ const DecoderConfig = struct {
     pHYS: bool = false,
     bKGD: bool = false,
     sRGB: bool = false,
+    sBIT: bool = false,
+    gAMA: bool = false,
 };
 
 pub fn pngDecoder() type {
@@ -31,6 +34,7 @@ pub fn pngDecoder() type {
         idat_allocator: std.mem.Allocator,
         pixel_buf: []u8,
         uncompressed_allocator: std.mem.Allocator,
+        //       palette_allocator: std.mem.Allocator,
 
         sample_size: u8,
 
@@ -38,6 +42,8 @@ pub fn pngDecoder() type {
         pHYS: ?chunks.pHYs = null,
         bKGD: ?chunks.bKGD = null,
         sRGB: ?chunks.sRGB = null,
+        sBIT: ?chunks.sBIT = null,
+        PLTE: ?chunks.PLTE = null,
 
         config: DecoderConfig,
 
@@ -49,6 +55,8 @@ pub fn pngDecoder() type {
                 idatAllocator,
             );
 
+            //          var palette_gpa = std.heap.GeneralPurposeAllocator(.{}){};
+            //          var p_alloc = palette_gpa.allocator();
             return Self{
                 .idat_list = idat_list,
                 .original_img_buffer = undefined,
@@ -69,15 +77,18 @@ pub fn pngDecoder() type {
             self.idat_list.deinit();
             self.original_img_allocator.free(self.original_img_buffer);
             self.uncompressed_allocator.free(self.pixel_buf);
+            if (self.PLTE != null) self.uncompressed_allocator.free(self.PLTE.?.sections);
             self.* = undefined;
         }
 
-        /// Resets the decoder to its original state while sill holding references to both allocators
+        /// Resets the decoder to its original state while sill holding references to both allocator
         pub fn reset(self: *Self) void {
             self.original_img_allocator(self.original_img_allocator);
             self.original_img_buffer = undefined;
             self.idat_list.clearAndFree();
             self.uncompressed_allocator.free(self.pixel_buf);
+            if (self.PLTE != null) self.uncompressed_allocator.free(self.PLTE.?.sections);
+
             self.file_size = undefined;
             self.pixel_buf = undefined;
             self.pHYS = null;
@@ -144,12 +155,14 @@ pub fn pngDecoder() type {
             }
 
             switch (data_type) {
-                //IHDR
-                0b01001001_01001000_01000100_01010010 => try self.handleIHDR(),
                 // IDAT
                 0b01001001_01000100_01000001_01010100 => {
                     return 0;
                 },
+                //IHDR
+                0b01001001_01001000_01000100_01010010 => try self.handleIHDR(),
+                // PLTE
+                0b01010000_01001100_01010100_01000101 => try self.handlePLTE(offset + 8, data_length),
                 // pHYs
                 0b01110000_01001000_01011001_01110011 => if (self.config.pHYS) self.handlepHYs(offset + 8),
                 // bKGD
@@ -157,7 +170,9 @@ pub fn pngDecoder() type {
                 // sRGB
                 0b01110011_01010010_01000111_01000010 => if (self.config.sRGB) self.handlesRGB(offset + 8),
                 // gAMA
-                0b01100111_01000001_01001101_01000001 => self.handlegAMA(offset + 8),
+                0b01100111_01000001_01001101_01000001 => if (self.config.gAMA) self.handlegAMA(offset + 8),
+                //sBIT
+                0b01110011_01000010_01001001_01010100 => if (self.config.sBIT) self.handlesBIT(offset + 8),
                 else => std.debug.print("unhandled chunk {c}{c}{c}{c}\n", .{
                     self.original_img_buffer[offset + 4],
                     self.original_img_buffer[offset + 5],
@@ -353,6 +368,42 @@ pub fn pngDecoder() type {
                 .green = green,
                 .blue = blue,
                 .palette_index = self.original_img_buffer[offset + 8],
+            };
+        }
+
+        fn handlesBIT(self: *Self, offset: u32) void {
+            self.sBIT = .{
+                .sig_grey_bits_t0 = self.original_img_buffer[offset],
+                .sig_red_bits_t23 = self.original_img_buffer[offset + 1],
+                .sig_green_bits_t23 = self.original_img_buffer[offset + 2],
+                .sig_blue_bits_t23 = self.original_img_buffer[offset + 3],
+                .sig_grey_bits_t4 = self.original_img_buffer[offset + 4],
+                .sig_alpha_bits_t4 = self.original_img_buffer[offset + 5],
+                .sig_red_bits_t6 = self.original_img_buffer[offset + 6],
+                .sig_green_bits_t6 = self.original_img_buffer[offset + 7],
+                .sig_blue_bits_t6 = self.original_img_buffer[offset + 8],
+                .sig_alpha_bits_t6 = self.original_img_buffer[offset + 9],
+            };
+        }
+
+        fn handlePLTE(self: *Self, offset: u32, data_length: u32) !void {
+            var entries_num: u32 = undefined;
+            if (data_length % 3 != 0) return PNGReadError.PLTENotDivisibleByThree;
+
+            entries_num = data_length / 3;
+
+            //std.debug.print("palette_allocator: {}\n", .{self.palette_allocator});
+            var plte_slice = try self.uncompressed_allocator.alloc(u8, data_length);
+
+            for (0..entries_num) |i| {
+                var start_pos = i * 3;
+                plte_slice[start_pos] = self.original_img_buffer[offset + start_pos];
+                plte_slice[start_pos + 1] = self.original_img_buffer[offset + start_pos + 1];
+                plte_slice[start_pos + 2] = self.original_img_buffer[offset + start_pos + 2];
+            }
+
+            self.PLTE = .{
+                .sections = plte_slice,
             };
         }
 

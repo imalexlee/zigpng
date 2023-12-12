@@ -12,7 +12,7 @@ pub const IHDR = struct {
 };
 
 pub const PLTE = struct {
-    sections: []plte_section,
+    sections: []u8,
 };
 
 const plte_section = struct {

@@ -12,7 +12,9 @@ test "decode greyscale image with 1 idat" {
 
     try image.loadFileFromPath(helpers.zigpng_test_allocator, file_path, .{});
     try image.readInfo();
+
     try image.readImageData();
+
     try testing.expect(image.IHDR.width == 32);
     try testing.expect(image.IHDR.height == 32);
     try testing.expect(image.sample_size == 1);
