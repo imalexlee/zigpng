@@ -28,10 +28,10 @@ This project is licensed under the MIT License.
 
 ## Future Plans
 
-- Finish the encoding portion of the PNG decoder/encoder.
-- Add more tests to ensure the correctness of the decoder and encoder.
-- Add error handling for edge cases.
-- Improve performance and memory usage.
+- Add encoding
+- Progressive loading support
+- Interlacing support
+- Improve performance and memory usage
 
 
 ## Contact
