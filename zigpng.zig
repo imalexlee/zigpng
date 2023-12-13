@@ -12,6 +12,8 @@ test {
         @import("tests/backgrounds.zig"),
         @import("tests/transparency.zig"),
         @import("tests/gama.zig"),
+        @import("tests/sig_bits.zig"),
+        @import("tests/physical_dimensions.zig"),
         @import("tests/helpers.zig"),
     }) |source_file| std.testing.refAllDeclsRecursive(source_file);
 }
