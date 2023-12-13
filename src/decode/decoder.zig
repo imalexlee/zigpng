@@ -437,17 +437,48 @@ pub fn pngDecoder() type {
         }
 
         fn handlesBIT(self: *Self, offset: u32) void {
+            var sig_grey_bits_t0: ?u8 = null;
+            var sig_red_bits_t23: ?u8 = null;
+            var sig_green_bits_t23: ?u8 = null;
+            var sig_blue_bits_t23: ?u8 = null;
+            var sig_grey_bits_t4: ?u8 = null;
+            var sig_alpha_bits_t4: ?u8 = null;
+            var sig_red_bits_t6: ?u8 = null;
+            var sig_green_bits_t6: ?u8 = null;
+            var sig_blue_bits_t6: ?u8 = null;
+            var sig_alpha_bits_t6: ?u8 = null;
+
+            switch (self.IHDR.color_type) {
+                0 => sig_grey_bits_t0 = self.original_img_buffer[offset],
+                2, 3 => {
+                    sig_red_bits_t23 = self.original_img_buffer[offset];
+                    sig_green_bits_t23 = self.original_img_buffer[offset + 1];
+                    sig_blue_bits_t23 = self.original_img_buffer[offset + 2];
+                },
+                4 => {
+                    sig_grey_bits_t4 = self.original_img_buffer[offset];
+                    sig_alpha_bits_t4 = self.original_img_buffer[offset + 1];
+                },
+                6 => {
+                    sig_red_bits_t6 = self.original_img_buffer[offset];
+                    sig_green_bits_t6 = self.original_img_buffer[offset + 1];
+                    sig_blue_bits_t6 = self.original_img_buffer[offset + 2];
+                    sig_alpha_bits_t6 = self.original_img_buffer[offset + 3];
+                },
+                else => unreachable,
+            }
+
             self.sBIT = .{
-                .sig_grey_bits_t0 = self.original_img_buffer[offset],
-                .sig_red_bits_t23 = self.original_img_buffer[offset + 1],
-                .sig_green_bits_t23 = self.original_img_buffer[offset + 2],
-                .sig_blue_bits_t23 = self.original_img_buffer[offset + 3],
-                .sig_grey_bits_t4 = self.original_img_buffer[offset + 4],
-                .sig_alpha_bits_t4 = self.original_img_buffer[offset + 5],
-                .sig_red_bits_t6 = self.original_img_buffer[offset + 6],
-                .sig_green_bits_t6 = self.original_img_buffer[offset + 7],
-                .sig_blue_bits_t6 = self.original_img_buffer[offset + 8],
-                .sig_alpha_bits_t6 = self.original_img_buffer[offset + 9],
+                .sig_grey_bits_t0 = sig_grey_bits_t0,
+                .sig_red_bits_t23 = sig_red_bits_t23,
+                .sig_green_bits_t23 = sig_green_bits_t23,
+                .sig_blue_bits_t23 = sig_blue_bits_t23,
+                .sig_grey_bits_t4 = sig_grey_bits_t4,
+                .sig_alpha_bits_t4 = sig_alpha_bits_t4,
+                .sig_red_bits_t6 = sig_red_bits_t6,
+                .sig_green_bits_t6 = sig_green_bits_t6,
+                .sig_blue_bits_t6 = sig_blue_bits_t6,
+                .sig_alpha_bits_t6 = sig_alpha_bits_t6,
             };
         }
 

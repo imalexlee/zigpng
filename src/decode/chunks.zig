@@ -85,16 +85,16 @@ pub const iCCP = struct {
 
 /// t0:type 0. t23:type 2 or 3. t4:type 4. t6:type 6.
 pub const sBIT = struct {
-    sig_grey_bits_t0: u8,
-    sig_red_bits_t23: u8,
-    sig_green_bits_t23: u8,
-    sig_blue_bits_t23: u8,
-    sig_grey_bits_t4: u8,
-    sig_alpha_bits_t4: u8,
-    sig_red_bits_t6: u8,
-    sig_green_bits_t6: u8,
-    sig_blue_bits_t6: u8,
-    sig_alpha_bits_t6: u8,
+    sig_grey_bits_t0: ?u8,
+    sig_red_bits_t23: ?u8,
+    sig_green_bits_t23: ?u8,
+    sig_blue_bits_t23: ?u8,
+    sig_grey_bits_t4: ?u8,
+    sig_alpha_bits_t4: ?u8,
+    sig_red_bits_t6: ?u8,
+    sig_green_bits_t6: ?u8,
+    sig_blue_bits_t6: ?u8,
+    sig_alpha_bits_t6: ?u8,
 };
 
 pub const sRGB = struct {
