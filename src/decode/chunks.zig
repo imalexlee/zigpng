@@ -1,5 +1,33 @@
 // http://www.libpng.org/pub/png/spec/iso/index-object.html
 
+pub const ChunkTypes = enum(u32) {
+    IHDR = 0b01001001_01001000_01000100_01010010,
+    IDAT = 0b01001001_01000100_01000001_01010100,
+    IEND = 0b01001001_01000101_01001110_01000100,
+    PLTE = 0b01010000_01001100_01010100_01000101,
+    tRNS = 0b01110100_01010010_01001110_01010011,
+    cHRM = 0b01100011_01001000_01010010_01001101,
+    gAMA = 0b01100111_01000001_01001101_01000001,
+    iCCP = 0b01101001_01000011_01000011_01010000,
+    sBIT = 0b01110011_01000010_01001001_01010100,
+    sRGB = 0b01110011_01010010_01000111_01000010,
+    cICP = 0b01100011_01001001_01000011_01010000,
+    mDCv = 0b01101101_01000100_01000011_01110110,
+    cLLi = 0b01100011_01001100_01001100_01101001,
+    tEXt = 0b01110100_01000101_01011000_01110100,
+    zTXt = 0b01111010_01010100_01011000_01110100,
+    iTXt = 0b01101001_01010100_01011000_01110100,
+    bKGD = 0b01100010_01001011_01000111_01000100,
+    hIST = 0b01101000_01001001_01010011_01010100,
+    pHYs = 0b01110000_01001000_01011001_01110011,
+    sPLT = 0b01110011_01010000_01001100_01010100,
+    eXIf = 0b01100101_01011000_01001001_01100110,
+    tIME = 0b01110100_01001001_01001101_01000101,
+    acTL = 0b01100001_01100011_01010100_01001100,
+    fcTL = 0b01100110_01100011_01010100_01001100,
+    fdAT = 0b01100110_01100100_01000001_01010100,
+};
+
 // CRITICAL CHUNKS
 pub const IHDR = struct {
     width: u32,
@@ -25,11 +53,11 @@ const plte_section = struct {
 
 // TRANSPARENCY
 pub const tRNS = struct {
-    grey_sample: u16,
-    red_sample: u16,
-    green_sample: u16,
-    blue_sample: u16,
-    alphas: []u8,
+    grey_sample: ?u16,
+    red_sample: ?u16,
+    green_sample: ?u16,
+    blue_sample: ?u16,
+    alphas: ?[]u8,
 };
 
 // COLOR SPACE
@@ -122,11 +150,11 @@ pub const iTXt = struct {
 // MISCELLANEOUS INFORMATION
 
 pub const bKGD = struct {
-    greyscale: u16,
-    red: u16,
-    green: u16,
-    blue: u16,
-    palette_index: u8,
+    greyscale: ?u16,
+    red: ?u16,
+    green: ?u16,
+    blue: ?u16,
+    palette_index: ?u8,
 };
 
 pub const hIST = struct {

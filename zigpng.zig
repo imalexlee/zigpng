@@ -6,11 +6,11 @@ test {
     const std = @import("std");
     std.testing.refAllDecls(@This());
     inline for (.{
-        @import("tests/decoding_tests/color_filter.zig"),
-        @import("tests/decoding_tests/greyscale_filter.zig"),
-        @import("tests/decoding_tests/color_idat_variations.zig"),
-        @import("tests/decoding_tests/greyscale_idat_variations.zig"),
-        @import("tests/decoding_tests/odd_sizes.zig"),
-        @import("tests/decoding_tests/helpers.zig"),
+        @import("tests/filters.zig"),
+        @import("tests/idat_variations.zig"),
+        @import("tests/odd_sizes.zig"),
+        @import("tests/backgrounds.zig"),
+        @import("tests/transparency.zig"),
+        @import("tests/helpers.zig"),
     }) |source_file| std.testing.refAllDeclsRecursive(source_file);
 }

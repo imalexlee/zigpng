@@ -3,6 +3,8 @@ const chunks = @import("./chunks.zig");
 const unfliter = @import("./unfilter.zig");
 const zlib = @cImport(@cInclude("zlib.h"));
 
+const ChunkTypes = chunks.ChunkTypes;
+
 const PNG_SIGNATURE = [8]u8{ 137, 80, 78, 71, 13, 10, 26, 10 };
 
 const PNGReadError = error{
@@ -43,7 +45,9 @@ pub fn pngDecoder() type {
         bKGD: ?chunks.bKGD = null,
         sRGB: ?chunks.sRGB = null,
         sBIT: ?chunks.sBIT = null,
+        gAMA: ?chunks.gAMA = null,
         PLTE: ?chunks.PLTE = null,
+        tRNS: ?chunks.tRNS = null,
 
         config: DecoderConfig,
 
@@ -78,6 +82,9 @@ pub fn pngDecoder() type {
             self.original_img_allocator.free(self.original_img_buffer);
             self.uncompressed_allocator.free(self.pixel_buf);
             if (self.PLTE != null) self.uncompressed_allocator.free(self.PLTE.?.sections);
+            if (self.tRNS != null) {
+                if (self.tRNS.?.alphas != null) self.uncompressed_allocator.free(self.tRNS.?.alphas.?);
+            }
             self.* = undefined;
         }
 
@@ -88,14 +95,21 @@ pub fn pngDecoder() type {
             self.idat_list.clearAndFree();
             self.uncompressed_allocator.free(self.pixel_buf);
             if (self.PLTE != null) self.uncompressed_allocator.free(self.PLTE.?.sections);
+            if (self.tRNS != null) {
+                if (self.tRNS.?.alphas != null) self.uncompressed_allocator.free(self.tRNS.?.alphas.?);
+            }
 
             self.file_size = undefined;
             self.pixel_buf = undefined;
+            self.sample_size = undefined;
+
+            self.IHDR = undefined;
+
             self.pHYS = null;
             self.bKGD = null;
             self.sRGB = null;
-            self.sample_size = undefined;
-            self.IHDR = undefined;
+            self.tRNS = null;
+            self.gAMA = null;
         }
 
         /// loads an image from a give path in the current working directory
@@ -155,24 +169,17 @@ pub fn pngDecoder() type {
             }
 
             switch (data_type) {
-                // IDAT
-                0b01001001_01000100_01000001_01010100 => {
+                @intFromEnum(ChunkTypes.IDAT) => {
                     return 0;
                 },
-                //IHDR
-                0b01001001_01001000_01000100_01010010 => try self.handleIHDR(),
-                // PLTE
-                0b01010000_01001100_01010100_01000101 => try self.handlePLTE(offset + 8, data_length),
-                // pHYs
-                0b01110000_01001000_01011001_01110011 => if (self.config.pHYS) self.handlepHYs(offset + 8),
-                // bKGD
-                0b01100010_01001011_01000111_01000100 => if (self.config.bKGD) self.handlebKGD(offset + 8),
-                // sRGB
-                0b01110011_01010010_01000111_01000010 => if (self.config.sRGB) self.handlesRGB(offset + 8),
-                // gAMA
-                0b01100111_01000001_01001101_01000001 => if (self.config.gAMA) self.handlegAMA(offset + 8),
-                //sBIT
-                0b01110011_01000010_01001001_01010100 => if (self.config.sBIT) self.handlesBIT(offset + 8),
+                @intFromEnum(ChunkTypes.IHDR) => try self.handleIHDR(),
+                @intFromEnum(ChunkTypes.PLTE) => try self.handlePLTE(offset + 8, data_length),
+                @intFromEnum(ChunkTypes.tRNS) => try self.handletRNS(offset + 8, data_length),
+                @intFromEnum(ChunkTypes.pHYs) => if (self.config.pHYS) self.handlepHYs(offset + 8),
+                @intFromEnum(ChunkTypes.bKGD) => if (self.config.bKGD) self.handlebKGD(offset + 8),
+                @intFromEnum(ChunkTypes.sRGB) => if (self.config.sRGB) self.handlesRGB(offset + 8),
+                @intFromEnum(ChunkTypes.gAMA) => if (self.config.gAMA) self.handlegAMA(offset + 8),
+                @intFromEnum(ChunkTypes.sBIT) => if (self.config.sBIT) self.handlesBIT(offset + 8),
                 else => std.debug.print("unhandled chunk {c}{c}{c}{c}\n", .{
                     self.original_img_buffer[offset + 4],
                     self.original_img_buffer[offset + 5],
@@ -212,10 +219,8 @@ pub fn pngDecoder() type {
             }
 
             switch (data_type) {
-                // IDAT
-                0b01001001_01000100_01000001_01010100 => try self.handleIDAT(offset + 8, data_length),
-                // IEND
-                0b01001001_01000101_01001110_01000100 => try self.unFilterIDAT(),
+                @intFromEnum(ChunkTypes.IDAT) => try self.handleIDAT(offset + 8, data_length),
+                @intFromEnum(ChunkTypes.IEND) => try self.unFilterIDAT(),
                 else => std.debug.print("unhandled chunk {c}{c}{c}{c}\n", .{
                     self.original_img_buffer[offset + 4],
                     self.original_img_buffer[offset + 5],
@@ -349,25 +354,85 @@ pub fn pngDecoder() type {
         }
 
         fn handlebKGD(self: *Self, offset: u32) void {
-            const greyscale: u16 =
-                @as(u16, self.original_img_buffer[offset]) << 8 |
-                @as(u16, self.original_img_buffer[offset + 1]);
-            const red: u16 =
-                @as(u16, self.original_img_buffer[offset + 2]) << 8 |
-                @as(u16, self.original_img_buffer[offset + 3]);
-            const green: u16 =
-                @as(u16, self.original_img_buffer[offset + 4]) << 8 |
-                @as(u16, self.original_img_buffer[offset + 5]);
-            const blue: u16 =
-                @as(u16, self.original_img_buffer[offset + 6]) << 8 |
-                @as(u16, self.original_img_buffer[offset + 7]);
+            var greyscale: ?u16 = null;
+            var red: ?u16 = null;
+            var green: ?u16 = null;
+            var blue: ?u16 = null;
+            var palette_index: ?u8 = null;
+
+            switch (self.IHDR.color_type) {
+                0, 4 => {
+                    greyscale =
+                        @as(u16, self.original_img_buffer[offset]) << 8 |
+                        @as(u16, self.original_img_buffer[offset + 1]);
+                },
+                2, 6 => {
+                    red =
+                        @as(u16, self.original_img_buffer[offset]) << 8 |
+                        @as(u16, self.original_img_buffer[offset + 1]);
+                    green =
+                        @as(u16, self.original_img_buffer[offset + 2]) << 8 |
+                        @as(u16, self.original_img_buffer[offset + 3]);
+
+                    blue =
+                        @as(u16, self.original_img_buffer[offset + 4]) << 8 |
+                        @as(u16, self.original_img_buffer[offset + 5]);
+                },
+
+                3 => {
+                    palette_index = self.original_img_buffer[offset];
+                },
+                else => unreachable,
+            }
 
             self.bKGD = .{
                 .greyscale = greyscale,
                 .red = red,
                 .green = green,
                 .blue = blue,
-                .palette_index = self.original_img_buffer[offset + 8],
+                .palette_index = palette_index,
+            };
+        }
+
+        fn handletRNS(self: *Self, offset: u32, data_length: u32) !void {
+            var grey_sample: ?u16 = null;
+            var red_sample: ?u16 = null;
+            var green_sample: ?u16 = null;
+            var blue_sample: ?u16 = null;
+            var alphas: ?[]u8 = null;
+
+            switch (self.IHDR.color_type) {
+                0 => {
+                    grey_sample =
+                        @as(u16, self.original_img_buffer[offset]) << 8 |
+                        @as(u16, self.original_img_buffer[offset + 1]);
+                },
+                2 => {
+                    red_sample =
+                        @as(u16, self.original_img_buffer[offset]) << 8 |
+                        @as(u16, self.original_img_buffer[offset + 1]);
+                    green_sample =
+                        @as(u16, self.original_img_buffer[offset + 2]) << 8 |
+                        @as(u16, self.original_img_buffer[offset + 3]);
+                    blue_sample =
+                        @as(u16, self.original_img_buffer[offset + 4]) << 8 |
+                        @as(u16, self.original_img_buffer[offset + 5]);
+                },
+
+                3 => {
+                    alphas = try self.uncompressed_allocator.alloc(u8, data_length);
+                    for (0..data_length) |i| {
+                        alphas.?[i] = self.original_img_buffer[offset + i];
+                    }
+                },
+                else => unreachable,
+            }
+            self.tRNS = .{
+                .grey_sample = grey_sample,
+                .red_sample = red_sample,
+                .green_sample = green_sample,
+                .blue_sample = blue_sample,
+                .alphas = alphas,
             };
         }
 
@@ -420,27 +485,10 @@ pub fn pngDecoder() type {
                 @as(u32, self.original_img_buffer[offset + 1]) << 16 |
                 @as(u32, self.original_img_buffer[offset + 2]) << 8 |
                 @as(u32, self.original_img_buffer[offset + 3]);
-            _ = gama;
-        }
 
-        pub fn print(self: *Self) void {
-            //std.debug.print("width {any}\n", .{self.IHDR.width});
-            // std.debug.print("height {any}\n", .{self.IHDR.height});
-            // std.debug.print("filter method {any}\n", .{self.IHDR.filter_method});
-            // std.debug.print("bit_depth {any}\n", .{self.IHDR.bit_depth});
-            // std.debug.print("color_type {any}\n", .{self.IHDR.color_type});
-            // std.debug.print("compression_method {any}\n", .{self.IHDR.compression_method});
-            // std.debug.print("greyscale: {any}\n", .{self.bKGD.?.greyscale});
-            // std.debug.print("red: {any}\n", .{self.bKGD.?.red});
-            // std.debug.print("green: {any}\n", .{self.bKGD.?.green});
-            // std.debug.print("blue: {any}\n", .{self.bKGD.?.blue});
-            // std.debug.print("palette_index: {any}\n", .{self.bKGD.?.palette_index});
-            // std.debug.print("rendering_intent: {any}\n", .{self.sRGB.?.rendering_intent});
-            for (0..self.pixel_buf.len) |i| {
-                std.debug.print("val at {d}: {any}\n", .{ i, self.pixel_buf[i] });
-            }
-            // std.debug.print("idat_list.len after: {any}\n\n", .{self.idat_list.items.len});
-
+            self.gAMA = .{
+                .image_gama = gama,
+            };
         }
     };
 }
