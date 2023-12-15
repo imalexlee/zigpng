@@ -183,7 +183,7 @@ const splt_palette = struct {
 };
 
 pub const eXIf = struct {
-    exif_data: []u8,
+    data: []u8,
 };
 
 // TIME
