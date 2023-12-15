@@ -124,27 +124,27 @@ pub const cLLi = struct {
 
 pub const tEXt = struct {
     keyword: []u8,
-    null_seperator: u8,
+    // null sperator (u8)
     text: []u8,
 };
 
 pub const zTXt = struct {
     keyword: []u8,
-    null_seperator: u8,
+    // null sperator (u8)
     compression_method: u8,
-    compressed_text: []u8,
+    uncompressed_text: []u8,
 };
 
 pub const iTXt = struct {
     keyword: []u8,
-    null_seperator1: u8,
+    // null sperator (u8)
     compression_flag: u8,
     compression_method: u8,
     language_tag: []u8,
-    null_seperator2: u8,
+    // null sperator (u8)
     translated_keyword: []u8,
-    null_seperator3: u8,
-    text: []u8,
+    // null sperator (u8)
+    uncompressed_text: []u8,
 };
 
 // MISCELLANEOUS INFORMATION

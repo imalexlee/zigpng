@@ -19,6 +19,7 @@ test "decode color image with 1 idat" {
     try testing.expect(image.pixel_buf.len == 6144);
     try testing.expect(image.IHDR.bit_depth == 16);
 }
+
 test "decode color image with 2 idats" {
     const file_path = "samples/idat_variations/color/oi2n2c16.png";
     const pngDecoder = png_decoder.pngDecoder();
