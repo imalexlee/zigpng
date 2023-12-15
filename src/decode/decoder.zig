@@ -108,7 +108,7 @@ pub fn pngDecoder() type {
                 .sample_size = undefined,
                 .IHDR = undefined,
                 .file_size = undefined,
-                .idat_start = undefined,
+                .idat_start = 0,
                 .config = config,
             };
         }
@@ -177,6 +177,7 @@ pub fn pngDecoder() type {
             self.file_size = undefined;
             self.pixel_buf = undefined;
             self.sample_size = undefined;
+            self.idat_start = 0;
 
             self.IHDR = undefined;
 
@@ -219,16 +220,15 @@ pub fn pngDecoder() type {
 
             // start after the PNG signature, at byte index 8
             var offset: u32 = 8;
-            while (offset < self.file_size) {
+            while (offset < self.file_size - 11) {
                 var temp: u32 = try self.readInfoChunk(offset);
-                if (temp == 0) {
-                    break;
-                }
                 offset += temp;
             }
-            self.idat_start = offset;
         }
 
+        /// searches for any info/ancillary chunks before AND after IDAT chunks.
+        ///
+        /// does not process IDAT chunks.
         fn readInfoChunk(self: *Self, offset: u32) !u32 {
             const data_length: u32 =
                 @as(u32, self.original_img_buffer[offset]) << 24 |
@@ -242,7 +242,9 @@ pub fn pngDecoder() type {
                 @as(u32, self.original_img_buffer[offset + 6]) << 8 |
                 @as(u32, self.original_img_buffer[offset + 7]);
 
-            if (self.config.checksum) {
+            // defer IDAT checksum until the readImageData function to avoid
+            // duplicating work
+            if (self.config.checksum and data_type != @intFromEnum(ChunkTypes.IDAT)) {
                 // initialize CRC
                 var crc = zlib.crc32(0, zlib.Z_NULL, 0);
 
@@ -251,8 +253,11 @@ pub fn pngDecoder() type {
 
             switch (data_type) {
                 @intFromEnum(ChunkTypes.IDAT) => {
-                    return 0;
+                    if (self.idat_start == 0) {
+                        self.idat_start = offset;
+                    }
                 },
+                @intFromEnum(ChunkTypes.IEND) => {},
                 @intFromEnum(ChunkTypes.IHDR) => try self.handleIHDR(),
                 @intFromEnum(ChunkTypes.PLTE) => try self.handlePLTE(offset + 8, data_length),
                 @intFromEnum(ChunkTypes.tRNS) => try self.handletRNS(offset + 8, data_length),
@@ -857,7 +862,6 @@ pub fn pngDecoder() type {
             };
         }
 
-        // TODO: decode gAMA
         fn handlegAMA(self: *Self, offset: u32) void {
             const gama: u32 =
                 @as(u32, self.original_img_buffer[offset]) << 24 |
