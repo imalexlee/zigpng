@@ -32,6 +32,7 @@ const DecoderConfig = struct {
     tEXt: bool = false,
     zTXt: bool = false,
     iTXt: bool = false,
+    eXIf: bool = false,
 };
 
 pub fn pngDecoder() type {
@@ -41,13 +42,11 @@ pub fn pngDecoder() type {
         original_img_allocator: std.mem.Allocator,
         file_size: u64 = 0,
 
-        // the starting index of the first idat chunk type
         idat_start: u32,
         idat_list: std.ArrayList(u8),
         idat_allocator: std.mem.Allocator,
         pixel_buf: []u8,
         uncompressed_allocator: std.mem.Allocator,
-        //       palette_allocator: std.mem.Allocator,
 
         sample_size: u8,
 
@@ -66,6 +65,7 @@ pub fn pngDecoder() type {
         cHRM: ?chunks.cHRM = null,
         hIST: ?chunks.hIST = null,
         tIME: ?chunks.tIME = null,
+        eXIf: ?chunks.eXIf = null,
 
         config: DecoderConfig,
 
@@ -122,14 +122,12 @@ pub fn pngDecoder() type {
 
             if (self.tEXt_list != null) {
                 self.tEXt_list.?.clearAndFree();
-                self.tEXt_list = null;
             }
             if (self.zTXt_list != null) {
                 for (self.zTXt_list.?.items) |zTXt| {
                     self.uncompressed_allocator.free(zTXt.uncompressed_text);
                 }
                 self.zTXt_list.?.clearAndFree();
-                self.zTXt_list = null;
             }
             if (self.iTXt_list != null) {
                 for (self.iTXt_list.?.items) |iTXt| {
@@ -138,7 +136,6 @@ pub fn pngDecoder() type {
                     }
                 }
                 self.iTXt_list.?.clearAndFree();
-                self.iTXt_list = null;
             }
             if (self.tRNS != null) {
                 if (self.tRNS.?.alphas != null) self.uncompressed_allocator.free(self.tRNS.?.alphas.?);
@@ -193,6 +190,7 @@ pub fn pngDecoder() type {
             self.tIME = null;
             self.zTXt = null;
             self.iTXt = null;
+            self.eXIf = null;
         }
 
         /// loads an image from a give path in the current working directory
@@ -258,6 +256,7 @@ pub fn pngDecoder() type {
                 @intFromEnum(ChunkTypes.IHDR) => try self.handleIHDR(),
                 @intFromEnum(ChunkTypes.PLTE) => try self.handlePLTE(offset + 8, data_length),
                 @intFromEnum(ChunkTypes.tRNS) => try self.handletRNS(offset + 8, data_length),
+                @intFromEnum(ChunkTypes.eXIf) => if (self.config.eXIf) self.handleeXIf(offset + 8, data_length),
                 @intFromEnum(ChunkTypes.hIST) => if (self.config.hIST) try self.handlehIST(offset + 8, data_length),
                 @intFromEnum(ChunkTypes.tEXt) => if (self.config.tEXt) try self.handletEXt(offset + 8, data_length),
                 @intFromEnum(ChunkTypes.zTXt) => if (self.config.zTXt) try self.handlezTXt(offset + 8, data_length),
@@ -269,6 +268,7 @@ pub fn pngDecoder() type {
                 @intFromEnum(ChunkTypes.cHRM) => if (self.config.cHRM) self.handlecHRM(offset + 8),
                 @intFromEnum(ChunkTypes.tIME) => if (self.config.tIME) self.handletIME(offset + 8),
                 @intFromEnum(ChunkTypes.sBIT) => if (self.config.sBIT) self.handlesBIT(offset + 8),
+
                 else => std.debug.print("unhandled chunk {c}{c}{c}{c}\n", .{
                     self.original_img_buffer[offset + 4],
                     self.original_img_buffer[offset + 5],
@@ -622,6 +622,13 @@ pub fn pngDecoder() type {
                 .sig_green_bits_t6 = sig_green_bits_t6,
                 .sig_blue_bits_t6 = sig_blue_bits_t6,
                 .sig_alpha_bits_t6 = sig_alpha_bits_t6,
+            };
+        }
+
+        fn handleeXIf(self: *Self, offset: u32, data_length: u32) void {
+            const end_pos = offset + data_length;
+            self.eXIf = .{
+                .data = self.original_img_buffer[offset..end_pos],
             };
         }
 

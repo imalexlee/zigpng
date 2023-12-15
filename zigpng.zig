@@ -18,6 +18,7 @@ test {
         @import("tests/histogram.zig"),
         @import("tests/time.zig"),
         @import("tests/text.zig"),
+        @import("tests/exif.zig"),
         @import("tests/helpers.zig"),
     }) |source_file| std.testing.refAllDeclsRecursive(source_file);
 }
