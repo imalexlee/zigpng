@@ -124,26 +124,26 @@ pub const cLLi = struct {
 
 pub const tEXt = struct {
     keyword: []u8,
-    // null sperator (u8)
+    // null seperator (u8)
     text: []u8,
 };
 
 pub const zTXt = struct {
     keyword: []u8,
-    // null sperator (u8)
+    // null seperator (u8)
     compression_method: u8,
     uncompressed_text: []u8,
 };
 
 pub const iTXt = struct {
     keyword: []u8,
-    // null sperator (u8)
+    // null seperator (u8)
     compression_flag: u8,
     compression_method: u8,
     language_tag: []u8,
-    // null sperator (u8)
+    // null seperator (u8)
     translated_keyword: []u8,
-    // null sperator (u8)
+    // null seperator (u8)
     uncompressed_text: []u8,
 };
 
@@ -167,18 +167,23 @@ pub const pHYs = struct {
     unit_specifier: u8,
 };
 
+//TODO: have a way to use one palette depth or the other to avoid allocating memory for unused fields
 pub const sPLT = struct {
     palette_name: []u8,
-    null_seperator: u8,
+    // null seperator (u8)
     sample_depth: u8,
     palette: []splt_palette,
 };
 
-const splt_palette = struct {
-    red: u16,
-    green: u16,
-    blue: u16,
-    alpha: u16,
+pub const splt_palette = struct {
+    red_8: ?u8,
+    green_8: ?u8,
+    blue_8: ?u8,
+    alpha_8: ?u8,
+    red_16: ?u16,
+    green_16: ?u16,
+    blue_16: ?u16,
+    alpha_16: ?u16,
     frequency: u16,
 };
 

@@ -13,6 +13,8 @@ const PNGReadError = error{
     CorruptedCRC,
     PLTENotDivisibleByThree,
     hISTNotValidU16Slice,
+    InvalidsPLT,
+    InvalidsPLTSampleDeth,
     InvalidCompressionMethod,
     ZlibInflateInitError,
     ZlibMemoryError,
@@ -25,6 +27,7 @@ const DecoderConfig = struct {
     bKGD: bool = false,
     sRGB: bool = false,
     sBIT: bool = false,
+    sPLT: bool = false,
     gAMA: bool = false,
     cHRM: bool = false,
     hIST: bool = false,
@@ -53,6 +56,7 @@ pub fn pngDecoder() type {
         tEXt_list: ?std.ArrayList(chunks.tEXt),
         zTXt_list: ?std.ArrayList(chunks.zTXt),
         iTXt_list: ?std.ArrayList(chunks.iTXt),
+        sPLT_list: ?std.ArrayList(chunks.sPLT),
 
         IHDR: chunks.IHDR,
         pHYS: ?chunks.pHYs = null,
@@ -94,12 +98,19 @@ pub fn pngDecoder() type {
                     uncompressedAllocator,
                 );
             }
+            var sPLT_list: ?std.ArrayList(chunks.sPLT) = null;
+            if (config.sPLT == true) {
+                sPLT_list = std.ArrayList(chunks.sPLT).init(
+                    uncompressedAllocator,
+                );
+            }
 
             return Self{
                 .idat_list = idat_list,
                 .tEXt_list = tEXt_list,
                 .zTXt_list = zTXt_list,
                 .iTXt_list = iTXt_list,
+                .sPLT_list = sPLT_list,
                 .original_img_buffer = undefined,
                 .original_img_allocator = undefined,
                 .idat_allocator = idatAllocator,
@@ -140,6 +151,12 @@ pub fn pngDecoder() type {
             if (self.tRNS != null) {
                 if (self.tRNS.?.alphas != null) self.uncompressed_allocator.free(self.tRNS.?.alphas.?);
             }
+            if (self.sPLT_list != null) {
+                for (self.sPLT_list.?.items) |sPLT| {
+                    self.uncompressed_allocator.free(sPLT.palette);
+                }
+                self.sPLT_list.?.clearAndFree();
+            }
             self.* = undefined;
         }
 
@@ -150,6 +167,7 @@ pub fn pngDecoder() type {
             self.idat_list.clearAndFree();
             self.uncompressed_allocator.free(self.pixel_buf);
             if (self.hIST != null) self.uncompressed_allocator.free(self.hIST.?.frequencies);
+            if (self.sPLT != null) self.uncompressed_allocator.free(self.sPLT);
             if (self.tEXt_list != null) {
                 self.tEXt_list.?.clearAndFree();
                 self.tEXt_list = null;
@@ -169,6 +187,13 @@ pub fn pngDecoder() type {
                 }
                 self.iTXt_list.?.clearAndFree();
                 self.iTXt_list = null;
+            }
+            if (self.sPLT_list != null) {
+                for (self.sPLT_list.?.items) |sPLT| {
+                    self.uncompressed_allocator.free(sPLT.palette);
+                }
+                self.sPLT_list.?.clearAndFree();
+                self.sPLT_list = null;
             }
             if (self.tRNS != null) {
                 if (self.tRNS.?.alphas != null) self.uncompressed_allocator.free(self.tRNS.?.alphas.?);
@@ -266,6 +291,7 @@ pub fn pngDecoder() type {
                 @intFromEnum(ChunkTypes.tEXt) => if (self.config.tEXt) try self.handletEXt(offset + 8, data_length),
                 @intFromEnum(ChunkTypes.zTXt) => if (self.config.zTXt) try self.handlezTXt(offset + 8, data_length),
                 @intFromEnum(ChunkTypes.iTXt) => if (self.config.iTXt) try self.handleiTXt(offset + 8, data_length),
+                @intFromEnum(ChunkTypes.sPLT) => if (self.config.sPLT) try self.handlesPLT(offset + 8, data_length),
                 @intFromEnum(ChunkTypes.pHYs) => if (self.config.pHYS) self.handlepHYs(offset + 8),
                 @intFromEnum(ChunkTypes.bKGD) => if (self.config.bKGD) self.handlebKGD(offset + 8),
                 @intFromEnum(ChunkTypes.sRGB) => if (self.config.sRGB) self.handlesRGB(offset + 8),
@@ -388,23 +414,23 @@ pub fn pngDecoder() type {
 
         /// appends each IDAT chunk data block to the list of IDAT data in cases of > 1 IDAT chunks
         fn handleIDAT(self: *Self, data_offset: u32, data_length: u32) !void {
-            var end_pos = data_offset + data_length;
+            const end_pos = data_offset + data_length;
             const compressed_buf = self.original_img_buffer[data_offset..end_pos];
             _ = try self.idat_list.appendSlice(compressed_buf);
         }
 
         fn unFilterIDAT(self: *Self) !void {
-            var bits_per_line = self.IHDR.width * self.sample_size * self.IHDR.bit_depth;
+            const bits_per_line = self.IHDR.width * self.sample_size * self.IHDR.bit_depth;
             // length of BYTES needed to store all pixel data w/o filter byte
-            var pixel_len = switch (self.IHDR.bit_depth) {
+            const pixel_len = switch (self.IHDR.bit_depth) {
                 8 => self.sample_size * (self.IHDR.height * self.IHDR.width),
                 16 => self.sample_size * 2 * (self.IHDR.height * self.IHDR.width),
                 else => if (bits_per_line % 8 == 0) bits_per_line / 8 * self.IHDR.height else (bits_per_line / 8 + 1) * self.IHDR.height,
             };
 
-            var uncompressed_len = pixel_len + self.IHDR.height;
+            const uncompressed_len = pixel_len + self.IHDR.height;
 
-            var uncompressed_buf = try self.uncompressed_allocator.alloc(u8, uncompressed_len);
+            const uncompressed_buf = try self.uncompressed_allocator.alloc(u8, uncompressed_len);
             defer self.uncompressed_allocator.free(uncompressed_buf);
 
             var pixel_list = try std.ArrayList(u8).initCapacity(self.uncompressed_allocator, pixel_len);
@@ -412,7 +438,7 @@ pub fn pngDecoder() type {
             var dest_len: c_ulong = uncompressed_buf.len;
             _ = zlib.uncompress(uncompressed_buf.ptr, &dest_len, self.idat_list.items.ptr, self.idat_list.items.len);
 
-            var line_width = if (bits_per_line % 8 == 0) bits_per_line / 8 + 1 else (bits_per_line / 8 + 1) + 1;
+            const line_width = if (bits_per_line % 8 == 0) bits_per_line / 8 + 1 else (bits_per_line / 8 + 1) + 1;
 
             for (0..self.IHDR.height) |i| {
                 switch (uncompressed_buf[i * line_width]) {
@@ -422,8 +448,8 @@ pub fn pngDecoder() type {
                     4 => unfliter.unFilterPaeth(uncompressed_buf, i, line_width, self.sample_size),
                     else => {},
                 }
-                var start_pos = i * line_width + 1;
-                var end_pos = start_pos + line_width - 1;
+                const start_pos = i * line_width + 1;
+                const end_pos = start_pos + line_width - 1;
                 try pixel_list.appendSlice(uncompressed_buf[start_pos..end_pos]);
             }
             self.pixel_buf = pixel_list.items;
@@ -644,6 +670,78 @@ pub fn pngDecoder() type {
             self.PLTE = .{
                 .sections = self.original_img_buffer[offset..end_pos],
             };
+        }
+
+        fn handlesPLT(self: *Self, offset: u32, data_length: u32) !void {
+            const end_pos = data_length + offset;
+            const null_one = std.mem.indexOfScalar(u8, self.original_img_buffer[offset..end_pos], 0).?;
+            const null_one_abs = offset + null_one;
+            const palette_name = self.original_img_buffer[offset..null_one_abs];
+
+            const sample_depth = self.original_img_buffer[null_one_abs + 1];
+
+            if (sample_depth != 8 and sample_depth != 16) return PNGReadError.InvalidsPLTSampleDeth;
+            const palette_start_abs = null_one_abs + 2;
+            var palette_length_bytes = end_pos - palette_start_abs;
+
+            if (sample_depth == 8 and palette_length_bytes % 6 != 0) return PNGReadError.InvalidsPLT;
+            if (sample_depth == 16 and palette_length_bytes % 10 != 0) return PNGReadError.InvalidsPLT;
+
+            // # of palette structs to allocate
+            const palette_size = if (sample_depth == 8) palette_length_bytes / 6 else palette_length_bytes / 10;
+            var palette_slice = try self.uncompressed_allocator.alloc(chunks.splt_palette, palette_size);
+
+            var i: u32 = 0;
+            var byte_offset: u32 = 0;
+
+            if (sample_depth == 8) {
+                while (i < palette_size) {
+                    byte_offset = i * 6;
+                    palette_slice[i].red_8 = self.original_img_buffer[byte_offset];
+                    palette_slice[i].green_8 = self.original_img_buffer[byte_offset + 1];
+                    palette_slice[i].blue_8 = self.original_img_buffer[byte_offset + 2];
+                    palette_slice[i].alpha_8 = self.original_img_buffer[byte_offset + 3];
+                    palette_slice[i].red_16 = null;
+                    palette_slice[i].green_16 = null;
+                    palette_slice[i].blue_16 = null;
+                    palette_slice[i].alpha_16 = null;
+                    palette_slice[i].frequency =
+                        @as(u16, self.original_img_buffer[byte_offset + 4]) << 8 |
+                        @as(u16, self.original_img_buffer[byte_offset + 5]);
+
+                    i += 1;
+                }
+            } else {
+                while (i < palette_size) {
+                    byte_offset = i * 10;
+                    palette_slice[i].red_16 =
+                        @as(u16, self.original_img_buffer[byte_offset]) << 8 |
+                        @as(u16, self.original_img_buffer[byte_offset + 1]);
+                    palette_slice[i].green_16 =
+                        @as(u16, self.original_img_buffer[byte_offset + 2]) << 8 |
+                        @as(u16, self.original_img_buffer[byte_offset + 3]);
+                    palette_slice[i].blue_16 =
+                        @as(u16, self.original_img_buffer[byte_offset + 4]) << 8 |
+                        @as(u16, self.original_img_buffer[byte_offset + 5]);
+                    palette_slice[i].alpha_16 =
+                        @as(u16, self.original_img_buffer[byte_offset + 6]) << 8 |
+                        @as(u16, self.original_img_buffer[byte_offset + 7]);
+                    palette_slice[i].frequency =
+                        @as(u16, self.original_img_buffer[byte_offset + 8]) << 8 |
+                        @as(u16, self.original_img_buffer[byte_offset + 9]);
+                    palette_slice[i].red_8 = null;
+                    palette_slice[i].green_8 = null;
+                    palette_slice[i].blue_8 = null;
+                    palette_slice[i].alpha_8 = null;
+                    i += 1;
+                }
+            }
+
+            try self.sPLT_list.?.append(.{
+                .palette_name = palette_name,
+                .sample_depth = sample_depth,
+                .palette = palette_slice,
+            });
         }
 
         fn handlehIST(self: *Self, offset: u32, data_length: u32) !void {
