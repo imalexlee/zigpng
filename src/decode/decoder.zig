@@ -1,6 +1,7 @@
 const std = @import("std");
 const chunks = @import("./chunks.zig");
 const unfliter = @import("./unfilter.zig");
+const handlers = @import("handlers.zig");
 const zlib = @cImport(@cInclude("zlib.h"));
 
 const ChunkTypes = chunks.ChunkTypes;
@@ -8,13 +9,14 @@ const assert = std.debug.assert;
 
 const PNG_SIGNATURE = [8]u8{ 137, 80, 78, 71, 13, 10, 26, 10 };
 
-const PNGReadError = error{
+pub const PNGReadError = error{
     NotPNG,
     CorruptedCRC,
     PLTENotDivisibleByThree,
     hISTNotValidU16Slice,
     InvalidsPLT,
     InvalidsPLTSampleDeth,
+    InvalidcICPMatrixCoefficient,
     InvalidCompressionMethod,
     ZlibInflateInitError,
     ZlibMemoryError,
@@ -36,29 +38,33 @@ const DecoderConfig = struct {
     zTXt: bool = false,
     iTXt: bool = false,
     eXIf: bool = false,
+    iCCP: bool = false,
+    cICP: bool = false,
+    mDCv: bool = false,
+    cLLi: bool = false,
 };
 
 pub fn pngDecoder() type {
     return struct {
         const Self = @This();
-        original_img_buffer: []u8,
-        original_img_allocator: std.mem.Allocator,
+        original_img_buffer: []u8 = undefined,
+        original_img_allocator: std.mem.Allocator = undefined,
         file_size: u64 = 0,
 
-        idat_start: u32,
-        idat_list: std.ArrayList(u8),
-        idat_allocator: std.mem.Allocator,
-        pixel_buf: []u8,
-        uncompressed_allocator: std.mem.Allocator,
+        idat_start: u32 = 0,
+        idat_list: std.ArrayList(u8) = undefined,
+        idat_allocator: std.mem.Allocator = undefined,
+        pixel_buf: []u8 = undefined,
+        uncompressed_allocator: std.mem.Allocator = undefined,
 
-        sample_size: u8,
+        sample_size: u8 = undefined,
 
         tEXt_list: ?std.ArrayList(chunks.tEXt),
         zTXt_list: ?std.ArrayList(chunks.zTXt),
         iTXt_list: ?std.ArrayList(chunks.iTXt),
         sPLT_list: ?std.ArrayList(chunks.sPLT),
 
-        IHDR: chunks.IHDR,
+        IHDR: chunks.IHDR = undefined,
         pHYS: ?chunks.pHYs = null,
         bKGD: ?chunks.bKGD = null,
         sRGB: ?chunks.sRGB = null,
@@ -69,7 +75,11 @@ pub fn pngDecoder() type {
         cHRM: ?chunks.cHRM = null,
         hIST: ?chunks.hIST = null,
         tIME: ?chunks.tIME = null,
+        iCCP: ?chunks.iCCP = null,
         eXIf: ?chunks.eXIf = null,
+        cICP: ?chunks.cICP = null,
+        mDCv: ?chunks.mDCv = null,
+        cLLi: ?chunks.cLLi = null,
 
         config: DecoderConfig,
 
@@ -111,15 +121,8 @@ pub fn pngDecoder() type {
                 .zTXt_list = zTXt_list,
                 .iTXt_list = iTXt_list,
                 .sPLT_list = sPLT_list,
-                .original_img_buffer = undefined,
-                .original_img_allocator = undefined,
                 .idat_allocator = idatAllocator,
-                .pixel_buf = undefined,
                 .uncompressed_allocator = uncompressedAllocator,
-                .sample_size = undefined,
-                .IHDR = undefined,
-                .file_size = undefined,
-                .idat_start = 0,
                 .config = config,
             };
         }
@@ -136,14 +139,14 @@ pub fn pngDecoder() type {
             }
             if (self.zTXt_list != null) {
                 for (self.zTXt_list.?.items) |zTXt| {
-                    self.uncompressed_allocator.free(zTXt.uncompressed_text);
+                    self.uncompressed_allocator.free(zTXt.text);
                 }
                 self.zTXt_list.?.clearAndFree();
             }
             if (self.iTXt_list != null) {
                 for (self.iTXt_list.?.items) |iTXt| {
                     if (iTXt.compression_flag == 1) {
-                        self.uncompressed_allocator.free(iTXt.uncompressed_text);
+                        self.uncompressed_allocator.free(iTXt.text);
                     }
                 }
                 self.iTXt_list.?.clearAndFree();
@@ -156,6 +159,9 @@ pub fn pngDecoder() type {
                     self.uncompressed_allocator.free(sPLT.palette);
                 }
                 self.sPLT_list.?.clearAndFree();
+            }
+            if (self.config.iCCP) {
+                self.uncompressed_allocator.free(self.iCCP.?.profile);
             }
             self.* = undefined;
         }
@@ -174,7 +180,7 @@ pub fn pngDecoder() type {
             }
             if (self.zTXt_list != null) {
                 for (self.zTXt_list.?.items) |zTXt| {
-                    self.uncompressed_allocator.free(zTXt.uncompressed_text);
+                    self.uncompressed_allocator.free(zTXt.text);
                 }
                 self.zTXt_list.?.clearAndFree();
                 self.zTXt_list = null;
@@ -182,7 +188,7 @@ pub fn pngDecoder() type {
             if (self.iTXt_list != null) {
                 for (self.iTXt_list.?.items) |iTXt| {
                     if (iTXt.compression_flag == 1) {
-                        self.uncompressed_allocator.free(iTXt.uncompressed_text);
+                        self.uncompressed_allocator.free(iTXt.text);
                     }
                 }
                 self.iTXt_list.?.clearAndFree();
@@ -196,9 +202,16 @@ pub fn pngDecoder() type {
                 self.sPLT_list = null;
             }
             if (self.tRNS != null) {
-                if (self.tRNS.?.alphas != null) self.uncompressed_allocator.free(self.tRNS.?.alphas.?);
+                if (self.tRNS.?.alphas != null) {
+                    self.uncompressed_allocator.free(self.tRNS.?.alphas.?);
+                    self.tRNS = null;
+                }
             }
 
+            if (self.config.iCCP) {
+                self.uncompressed_allocator.free(self.iCCP.?.profile);
+                self.iCCP = null;
+            }
             self.file_size = undefined;
             self.pixel_buf = undefined;
             self.sample_size = undefined;
@@ -209,7 +222,6 @@ pub fn pngDecoder() type {
             self.pHYS = null;
             self.bKGD = null;
             self.sRGB = null;
-            self.tRNS = null;
             self.gAMA = null;
             self.cHRM = null;
             self.hIST = null;
@@ -217,6 +229,9 @@ pub fn pngDecoder() type {
             self.zTXt = null;
             self.iTXt = null;
             self.eXIf = null;
+            self.cICP = null;
+            self.mDCv = null;
+            self.cLLi = null;
         }
 
         /// loads an image from a give path in the current working directory
@@ -283,7 +298,7 @@ pub fn pngDecoder() type {
                     }
                 },
                 @intFromEnum(ChunkTypes.IEND) => {},
-                @intFromEnum(ChunkTypes.IHDR) => try self.handleIHDR(),
+                @intFromEnum(ChunkTypes.IHDR) => try handlers.handleIHDR(self),
                 @intFromEnum(ChunkTypes.PLTE) => try self.handlePLTE(offset + 8, data_length),
                 @intFromEnum(ChunkTypes.tRNS) => try self.handletRNS(offset + 8, data_length),
                 @intFromEnum(ChunkTypes.eXIf) => if (self.config.eXIf) self.handleeXIf(offset + 8, data_length),
@@ -298,6 +313,10 @@ pub fn pngDecoder() type {
                 @intFromEnum(ChunkTypes.gAMA) => if (self.config.gAMA) self.handlegAMA(offset + 8),
                 @intFromEnum(ChunkTypes.cHRM) => if (self.config.cHRM) self.handlecHRM(offset + 8),
                 @intFromEnum(ChunkTypes.tIME) => if (self.config.tIME) self.handletIME(offset + 8),
+                @intFromEnum(ChunkTypes.mDCv) => if (self.config.mDCv) handlers.handlemDCv(self, offset + 8),
+                @intFromEnum(ChunkTypes.cICP) => if (self.config.cICP) try handlers.handlecICP(self, offset + 8),
+                @intFromEnum(ChunkTypes.cLLi) => if (self.config.cLLi) try handlers.handlecLLi(self, offset + 8),
+                @intFromEnum(ChunkTypes.iCCP) => if (self.config.iCCP) try handlers.handleiCCP(self, offset + 8, data_length),
                 @intFromEnum(ChunkTypes.sBIT) => if (self.config.sBIT) self.handlesBIT(offset + 8),
 
                 else => std.debug.print("unhandled chunk {c}{c}{c}{c}\n", .{
@@ -339,7 +358,7 @@ pub fn pngDecoder() type {
             }
 
             switch (data_type) {
-                @intFromEnum(ChunkTypes.IDAT) => try self.handleIDAT(offset + 8, data_length),
+                @intFromEnum(ChunkTypes.IDAT) => try handlers.handleIDAT(self, offset + 8, data_length),
                 @intFromEnum(ChunkTypes.IEND) => try self.unFilterIDAT(),
                 else => std.debug.print("unhandled chunk {c}{c}{c}{c}\n", .{
                     self.original_img_buffer[offset + 4],
@@ -349,52 +368,6 @@ pub fn pngDecoder() type {
                 }),
             }
             return data_length + 12;
-        }
-
-        pub fn handleIHDR(self: *Self) !void {
-            const width: u32 =
-                @as(u32, self.original_img_buffer[16]) << 24 |
-                @as(u32, self.original_img_buffer[17]) << 16 |
-                @as(u32, self.original_img_buffer[18]) << 8 |
-                @as(u32, self.original_img_buffer[19]);
-            const height: u32 =
-                @as(u32, self.original_img_buffer[20]) << 24 |
-                @as(u32, self.original_img_buffer[21]) << 16 |
-                @as(u32, self.original_img_buffer[22]) << 8 |
-                @as(u32, self.original_img_buffer[23]);
-
-            const bit_depth: u8 = self.original_img_buffer[24];
-            const color_type: u8 = self.original_img_buffer[25];
-            const compression_method: u8 = self.original_img_buffer[26];
-            const filter_method: u8 = self.original_img_buffer[27];
-            const interlace_method: u8 = self.original_img_buffer[28];
-
-            var sample_size: u8 = switch (color_type) {
-                // match values represent color type
-                // 1: greyscale luminance
-                0 => 1,
-                // 3: R,G,B
-                2 => 3,
-                // 1: pallete index
-                3 => 1,
-                // 2: greyscale luminance + alpha
-                4 => 2,
-                // 4: R,G,B,A
-                6 => 4,
-
-                else => unreachable,
-            };
-
-            self.IHDR = .{
-                .height = height,
-                .width = width,
-                .bit_depth = bit_depth,
-                .color_type = color_type,
-                .compression_method = compression_method,
-                .filter_method = filter_method,
-                .interlace_method = interlace_method,
-            };
-            self.sample_size = sample_size;
         }
 
         /// In PNG spec, crc is derived from the bytes present in the chunk type and chunk data
@@ -410,13 +383,6 @@ pub fn pngDecoder() type {
             if (crc.* != original_crc) {
                 return PNGReadError.CorruptedCRC;
             }
-        }
-
-        /// appends each IDAT chunk data block to the list of IDAT data in cases of > 1 IDAT chunks
-        fn handleIDAT(self: *Self, data_offset: u32, data_length: u32) !void {
-            const end_pos = data_offset + data_length;
-            const compressed_buf = self.original_img_buffer[data_offset..end_pos];
-            _ = try self.idat_list.appendSlice(compressed_buf);
         }
 
         fn unFilterIDAT(self: *Self) !void {
@@ -858,7 +824,7 @@ pub fn pngDecoder() type {
             try self.zTXt_list.?.append(.{
                 .keyword = keyword,
                 .compression_method = compression_method,
-                .uncompressed_text = temp_out_list.items,
+                .text = temp_out_list.items,
             });
         }
 
@@ -868,7 +834,7 @@ pub fn pngDecoder() type {
             var compression_method: u8 = undefined;
             var language_tag: []u8 = undefined;
             var translated_keyword: []u8 = undefined;
-            var uncompressed_text: []u8 = undefined;
+            var text: []u8 = undefined;
 
             const end_pos = offset + data_length;
             const null_one = @as(u32, @intCast(std.mem.indexOfScalar(u8, self.original_img_buffer[offset..end_pos], 0).?));
@@ -889,16 +855,16 @@ pub fn pngDecoder() type {
 
             translated_keyword = self.original_img_buffer[translated_keyword_start_abs..translated_keyword_end_abs];
 
-            const uncompressed_text_start_abs = translated_keyword_end_abs + 1;
+            const text_start_abs = translated_keyword_end_abs + 1;
             if (compression_flag == 0) {
-                uncompressed_text = self.original_img_buffer[uncompressed_text_start_abs..end_pos];
+                text = self.original_img_buffer[text_start_abs..end_pos];
                 try self.iTXt_list.?.append(.{
                     .keyword = keyword,
                     .compression_flag = compression_flag,
                     .compression_method = compression_method,
                     .language_tag = language_tag,
                     .translated_keyword = translated_keyword,
-                    .uncompressed_text = uncompressed_text,
+                    .text = text,
                 });
                 return;
             }
@@ -920,8 +886,8 @@ pub fn pngDecoder() type {
 
             if (zlib_ret != zlib.Z_OK) return PNGReadError.ZlibInflateInitError;
 
-            strm.avail_in = @as(c_uint, @intCast(end_pos)) - uncompressed_text_start_abs;
-            strm.next_in = self.original_img_buffer[uncompressed_text_start_abs..end_pos].ptr;
+            strm.avail_in = @as(c_uint, @intCast(end_pos)) - text_start_abs;
+            strm.next_in = self.original_img_buffer[text_start_abs..end_pos].ptr;
             while (strm.avail_out == 0 or zlib_ret != zlib.Z_STREAM_END) {
                 // set out buffer
                 strm.next_out = &temp_out_buf;
@@ -950,7 +916,7 @@ pub fn pngDecoder() type {
                 .compression_method = compression_method,
                 .language_tag = language_tag,
                 .translated_keyword = translated_keyword,
-                .uncompressed_text = temp_out_list.items,
+                .text = temp_out_list.items,
             });
         }
 
