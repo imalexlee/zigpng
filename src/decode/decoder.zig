@@ -1,6 +1,5 @@
 const std = @import("std");
 const chunks = @import("./chunks.zig");
-const unfliter = @import("./unfilter.zig");
 const handlers = @import("handlers.zig");
 const zlib = @cImport(@cInclude("zlib.h"));
 
@@ -42,6 +41,8 @@ const DecoderConfig = struct {
     cICP: bool = false,
     mDCv: bool = false,
     cLLi: bool = false,
+    acTL: bool = false,
+    fcTL: bool = false,
 };
 
 pub fn pngDecoder() type {
@@ -80,6 +81,8 @@ pub fn pngDecoder() type {
         cICP: ?chunks.cICP = null,
         mDCv: ?chunks.mDCv = null,
         cLLi: ?chunks.cLLi = null,
+        acTL: ?chunks.acTL = null,
+        fcTL: ?chunks.fcTL = null,
 
         config: DecoderConfig,
 
@@ -232,6 +235,8 @@ pub fn pngDecoder() type {
             self.cICP = null;
             self.mDCv = null;
             self.cLLi = null;
+            self.acTL = null;
+            self.fcTL = null;
         }
 
         /// loads an image from a give path in the current working directory
@@ -288,7 +293,7 @@ pub fn pngDecoder() type {
                 // initialize CRC
                 var crc = zlib.crc32(0, zlib.Z_NULL, 0);
 
-                try self.handleCRC(&crc, offset + 4, data_length);
+                try handlers.handleCRC(self, &crc, offset + 4, data_length);
             }
 
             switch (data_type) {
@@ -299,25 +304,27 @@ pub fn pngDecoder() type {
                 },
                 @intFromEnum(ChunkTypes.IEND) => {},
                 @intFromEnum(ChunkTypes.IHDR) => try handlers.handleIHDR(self),
-                @intFromEnum(ChunkTypes.PLTE) => try self.handlePLTE(offset + 8, data_length),
-                @intFromEnum(ChunkTypes.tRNS) => try self.handletRNS(offset + 8, data_length),
-                @intFromEnum(ChunkTypes.eXIf) => if (self.config.eXIf) self.handleeXIf(offset + 8, data_length),
-                @intFromEnum(ChunkTypes.hIST) => if (self.config.hIST) try self.handlehIST(offset + 8, data_length),
-                @intFromEnum(ChunkTypes.tEXt) => if (self.config.tEXt) try self.handletEXt(offset + 8, data_length),
-                @intFromEnum(ChunkTypes.zTXt) => if (self.config.zTXt) try self.handlezTXt(offset + 8, data_length),
-                @intFromEnum(ChunkTypes.iTXt) => if (self.config.iTXt) try self.handleiTXt(offset + 8, data_length),
-                @intFromEnum(ChunkTypes.sPLT) => if (self.config.sPLT) try self.handlesPLT(offset + 8, data_length),
-                @intFromEnum(ChunkTypes.pHYs) => if (self.config.pHYS) self.handlepHYs(offset + 8),
-                @intFromEnum(ChunkTypes.bKGD) => if (self.config.bKGD) self.handlebKGD(offset + 8),
-                @intFromEnum(ChunkTypes.sRGB) => if (self.config.sRGB) self.handlesRGB(offset + 8),
-                @intFromEnum(ChunkTypes.gAMA) => if (self.config.gAMA) self.handlegAMA(offset + 8),
-                @intFromEnum(ChunkTypes.cHRM) => if (self.config.cHRM) self.handlecHRM(offset + 8),
-                @intFromEnum(ChunkTypes.tIME) => if (self.config.tIME) self.handletIME(offset + 8),
+                @intFromEnum(ChunkTypes.PLTE) => try handlers.handlePLTE(self, offset + 8, data_length),
+                @intFromEnum(ChunkTypes.tRNS) => try handlers.handletRNS(self, offset + 8, data_length),
+                @intFromEnum(ChunkTypes.eXIf) => if (self.config.eXIf) handlers.handleeXIf(self, offset + 8, data_length),
+                @intFromEnum(ChunkTypes.hIST) => if (self.config.hIST) try handlers.handlehIST(self, offset + 8, data_length),
+                @intFromEnum(ChunkTypes.tEXt) => if (self.config.tEXt) try handlers.handletEXt(self, offset + 8, data_length),
+                @intFromEnum(ChunkTypes.zTXt) => if (self.config.zTXt) try handlers.handlezTXt(self, offset + 8, data_length),
+                @intFromEnum(ChunkTypes.iTXt) => if (self.config.iTXt) try handlers.handleiTXt(self, offset + 8, data_length),
+                @intFromEnum(ChunkTypes.sPLT) => if (self.config.sPLT) try handlers.handlesPLT(self, offset + 8, data_length),
+                @intFromEnum(ChunkTypes.pHYs) => if (self.config.pHYS) handlers.handlepHYs(self, offset + 8),
+                @intFromEnum(ChunkTypes.bKGD) => if (self.config.bKGD) handlers.handlebKGD(self, offset + 8),
+                @intFromEnum(ChunkTypes.sRGB) => if (self.config.sRGB) handlers.handlesRGB(self, offset + 8),
+                @intFromEnum(ChunkTypes.gAMA) => if (self.config.gAMA) handlers.handlegAMA(self, offset + 8),
+                @intFromEnum(ChunkTypes.cHRM) => if (self.config.cHRM) handlers.handlecHRM(self, offset + 8),
+                @intFromEnum(ChunkTypes.tIME) => if (self.config.tIME) handlers.handletIME(self, offset + 8),
                 @intFromEnum(ChunkTypes.mDCv) => if (self.config.mDCv) handlers.handlemDCv(self, offset + 8),
+                @intFromEnum(ChunkTypes.acTL) => if (self.config.acTL) handlers.handleacTL(self, offset + 8),
+                @intFromEnum(ChunkTypes.fcTL) => if (self.config.fcTL) handlers.handlefcTL(self, offset + 8),
+                @intFromEnum(ChunkTypes.cLLi) => if (self.config.cLLi) handlers.handlecLLi(self, offset + 8),
                 @intFromEnum(ChunkTypes.cICP) => if (self.config.cICP) try handlers.handlecICP(self, offset + 8),
-                @intFromEnum(ChunkTypes.cLLi) => if (self.config.cLLi) try handlers.handlecLLi(self, offset + 8),
                 @intFromEnum(ChunkTypes.iCCP) => if (self.config.iCCP) try handlers.handleiCCP(self, offset + 8, data_length),
-                @intFromEnum(ChunkTypes.sBIT) => if (self.config.sBIT) self.handlesBIT(offset + 8),
+                @intFromEnum(ChunkTypes.sBIT) => if (self.config.sBIT) handlers.handlesBIT(self, offset + 8),
 
                 else => std.debug.print("unhandled chunk {c}{c}{c}{c}\n", .{
                     self.original_img_buffer[offset + 4],
@@ -354,12 +361,12 @@ pub fn pngDecoder() type {
                 // initialize CRC
                 var crc = zlib.crc32(0, zlib.Z_NULL, 0);
 
-                try self.handleCRC(&crc, offset + 4, data_length);
+                try handlers.handleCRC(self, &crc, offset + 4, data_length);
             }
 
             switch (data_type) {
                 @intFromEnum(ChunkTypes.IDAT) => try handlers.handleIDAT(self, offset + 8, data_length),
-                @intFromEnum(ChunkTypes.IEND) => try self.unFilterIDAT(),
+                @intFromEnum(ChunkTypes.IEND) => try handlers.unFilterIDAT(self),
                 else => std.debug.print("unhandled chunk {c}{c}{c}{c}\n", .{
                     self.original_img_buffer[offset + 4],
                     self.original_img_buffer[offset + 5],
@@ -368,574 +375,6 @@ pub fn pngDecoder() type {
                 }),
             }
             return data_length + 12;
-        }
-
-        /// In PNG spec, crc is derived from the bytes present in the chunk type and chunk data
-        fn handleCRC(self: *Self, crc: *c_ulong, type_offset: u32, data_length: u32) PNGReadError!void {
-            var end_pos = type_offset + data_length + 4;
-            const buffer = self.original_img_buffer[type_offset..end_pos];
-            crc.* = zlib.crc32(crc.*, buffer.ptr, data_length + 4);
-            const original_crc: u32 =
-                @as(u32, self.original_img_buffer[end_pos]) << 24 |
-                @as(u32, self.original_img_buffer[end_pos + 1]) << 16 |
-                @as(u32, self.original_img_buffer[end_pos + 2]) << 8 |
-                @as(u32, self.original_img_buffer[end_pos + 3]);
-            if (crc.* != original_crc) {
-                return PNGReadError.CorruptedCRC;
-            }
-        }
-
-        fn unFilterIDAT(self: *Self) !void {
-            const bits_per_line = self.IHDR.width * self.sample_size * self.IHDR.bit_depth;
-            // length of BYTES needed to store all pixel data w/o filter byte
-            const pixel_len = switch (self.IHDR.bit_depth) {
-                8 => self.sample_size * (self.IHDR.height * self.IHDR.width),
-                16 => self.sample_size * 2 * (self.IHDR.height * self.IHDR.width),
-                else => if (bits_per_line % 8 == 0) bits_per_line / 8 * self.IHDR.height else (bits_per_line / 8 + 1) * self.IHDR.height,
-            };
-
-            const uncompressed_len = pixel_len + self.IHDR.height;
-
-            const uncompressed_buf = try self.uncompressed_allocator.alloc(u8, uncompressed_len);
-            defer self.uncompressed_allocator.free(uncompressed_buf);
-
-            var pixel_list = try std.ArrayList(u8).initCapacity(self.uncompressed_allocator, pixel_len);
-
-            var dest_len: c_ulong = uncompressed_buf.len;
-            _ = zlib.uncompress(uncompressed_buf.ptr, &dest_len, self.idat_list.items.ptr, self.idat_list.items.len);
-
-            const line_width = if (bits_per_line % 8 == 0) bits_per_line / 8 + 1 else (bits_per_line / 8 + 1) + 1;
-
-            for (0..self.IHDR.height) |i| {
-                switch (uncompressed_buf[i * line_width]) {
-                    1 => unfliter.unFilterSub(uncompressed_buf, i, line_width, self.sample_size),
-                    2 => unfliter.unFilterUp(uncompressed_buf, i, line_width, self.sample_size),
-                    3 => unfliter.unFilterAverage(uncompressed_buf, i, line_width, self.sample_size),
-                    4 => unfliter.unFilterPaeth(uncompressed_buf, i, line_width, self.sample_size),
-                    else => {},
-                }
-                const start_pos = i * line_width + 1;
-                const end_pos = start_pos + line_width - 1;
-                try pixel_list.appendSlice(uncompressed_buf[start_pos..end_pos]);
-            }
-            self.pixel_buf = pixel_list.items;
-        }
-
-        fn handlepHYs(self: *Self, offset: u32) void {
-            const ppu_x: u32 =
-                @as(u32, self.original_img_buffer[offset]) << 24 |
-                @as(u32, self.original_img_buffer[offset + 1]) << 16 |
-                @as(u32, self.original_img_buffer[offset + 2]) << 8 |
-                @as(u32, self.original_img_buffer[offset + 3]);
-            const ppu_y: u32 =
-                @as(u32, self.original_img_buffer[offset + 4]) << 24 |
-                @as(u32, self.original_img_buffer[offset + 5]) << 16 |
-                @as(u32, self.original_img_buffer[offset + 6]) << 8 |
-                @as(u32, self.original_img_buffer[offset + 7]);
-            self.pHYS = .{
-                .ppu_x = ppu_x,
-                .ppu_y = ppu_y,
-                .unit_specifier = self.original_img_buffer[offset + 8],
-            };
-        }
-
-        fn handlecHRM(self: *Self, offset: u32) void {
-            const white_point_x: u32 =
-                @as(u32, self.original_img_buffer[offset]) << 24 |
-                @as(u32, self.original_img_buffer[offset + 1]) << 16 |
-                @as(u32, self.original_img_buffer[offset + 2]) << 8 |
-                @as(u32, self.original_img_buffer[offset + 3]);
-            const white_point_y: u32 =
-                @as(u32, self.original_img_buffer[offset + 4]) << 24 |
-                @as(u32, self.original_img_buffer[offset + 5]) << 16 |
-                @as(u32, self.original_img_buffer[offset + 6]) << 8 |
-                @as(u32, self.original_img_buffer[offset + 7]);
-            const red_x: u32 =
-                @as(u32, self.original_img_buffer[offset + 8]) << 24 |
-                @as(u32, self.original_img_buffer[offset + 9]) << 16 |
-                @as(u32, self.original_img_buffer[offset + 10]) << 8 |
-                @as(u32, self.original_img_buffer[offset + 11]);
-            const red_y: u32 =
-                @as(u32, self.original_img_buffer[offset + 12]) << 24 |
-                @as(u32, self.original_img_buffer[offset + 13]) << 16 |
-                @as(u32, self.original_img_buffer[offset + 14]) << 8 |
-                @as(u32, self.original_img_buffer[offset + 15]);
-            const green_x: u32 =
-                @as(u32, self.original_img_buffer[offset + 16]) << 24 |
-                @as(u32, self.original_img_buffer[offset + 17]) << 16 |
-                @as(u32, self.original_img_buffer[offset + 18]) << 8 |
-                @as(u32, self.original_img_buffer[offset + 19]);
-            const green_y: u32 =
-                @as(u32, self.original_img_buffer[offset + 20]) << 24 |
-                @as(u32, self.original_img_buffer[offset + 21]) << 16 |
-                @as(u32, self.original_img_buffer[offset + 22]) << 8 |
-                @as(u32, self.original_img_buffer[offset + 23]);
-            const blue_x: u32 =
-                @as(u32, self.original_img_buffer[offset + 24]) << 24 |
-                @as(u32, self.original_img_buffer[offset + 25]) << 16 |
-                @as(u32, self.original_img_buffer[offset + 26]) << 8 |
-                @as(u32, self.original_img_buffer[offset + 27]);
-            const blue_y: u32 =
-                @as(u32, self.original_img_buffer[offset + 28]) << 24 |
-                @as(u32, self.original_img_buffer[offset + 29]) << 16 |
-                @as(u32, self.original_img_buffer[offset + 30]) << 8 |
-                @as(u32, self.original_img_buffer[offset + 31]);
-
-            self.cHRM = .{
-                .white_point_x = white_point_x,
-                .white_point_y = white_point_y,
-                .red_x = red_x,
-                .red_y = red_y,
-                .green_x = green_x,
-                .green_y = green_y,
-                .blue_x = blue_x,
-                .blue_y = blue_y,
-            };
-        }
-
-        fn handlebKGD(self: *Self, offset: u32) void {
-            var greyscale: ?u16 = null;
-            var red: ?u16 = null;
-            var green: ?u16 = null;
-            var blue: ?u16 = null;
-            var palette_index: ?u8 = null;
-
-            switch (self.IHDR.color_type) {
-                0, 4 => {
-                    greyscale =
-                        @as(u16, self.original_img_buffer[offset]) << 8 |
-                        @as(u16, self.original_img_buffer[offset + 1]);
-                },
-                2, 6 => {
-                    red =
-                        @as(u16, self.original_img_buffer[offset]) << 8 |
-                        @as(u16, self.original_img_buffer[offset + 1]);
-                    green =
-                        @as(u16, self.original_img_buffer[offset + 2]) << 8 |
-                        @as(u16, self.original_img_buffer[offset + 3]);
-
-                    blue =
-                        @as(u16, self.original_img_buffer[offset + 4]) << 8 |
-                        @as(u16, self.original_img_buffer[offset + 5]);
-                },
-
-                3 => {
-                    palette_index = self.original_img_buffer[offset];
-                },
-                else => unreachable,
-            }
-
-            self.bKGD = .{
-                .greyscale = greyscale,
-                .red = red,
-                .green = green,
-                .blue = blue,
-                .palette_index = palette_index,
-            };
-        }
-
-        fn handletRNS(self: *Self, offset: u32, data_length: u32) !void {
-            var grey_sample: ?u16 = null;
-            var red_sample: ?u16 = null;
-            var green_sample: ?u16 = null;
-            var blue_sample: ?u16 = null;
-            var alphas: ?[]u8 = null;
-
-            switch (self.IHDR.color_type) {
-                0 => {
-                    grey_sample =
-                        @as(u16, self.original_img_buffer[offset]) << 8 |
-                        @as(u16, self.original_img_buffer[offset + 1]);
-                },
-                2 => {
-                    red_sample =
-                        @as(u16, self.original_img_buffer[offset]) << 8 |
-                        @as(u16, self.original_img_buffer[offset + 1]);
-                    green_sample =
-                        @as(u16, self.original_img_buffer[offset + 2]) << 8 |
-                        @as(u16, self.original_img_buffer[offset + 3]);
-                    blue_sample =
-                        @as(u16, self.original_img_buffer[offset + 4]) << 8 |
-                        @as(u16, self.original_img_buffer[offset + 5]);
-                },
-
-                3 => {
-                    alphas = try self.uncompressed_allocator.alloc(u8, data_length);
-                    for (0..data_length) |i| {
-                        alphas.?[i] = self.original_img_buffer[offset + i];
-                    }
-                },
-                else => unreachable,
-            }
-            self.tRNS = .{
-                .grey_sample = grey_sample,
-                .red_sample = red_sample,
-                .green_sample = green_sample,
-                .blue_sample = blue_sample,
-                .alphas = alphas,
-            };
-        }
-
-        fn handlesBIT(self: *Self, offset: u32) void {
-            var sig_grey_bits_t0: ?u8 = null;
-            var sig_red_bits_t23: ?u8 = null;
-            var sig_green_bits_t23: ?u8 = null;
-            var sig_blue_bits_t23: ?u8 = null;
-            var sig_grey_bits_t4: ?u8 = null;
-            var sig_alpha_bits_t4: ?u8 = null;
-            var sig_red_bits_t6: ?u8 = null;
-            var sig_green_bits_t6: ?u8 = null;
-            var sig_blue_bits_t6: ?u8 = null;
-            var sig_alpha_bits_t6: ?u8 = null;
-
-            switch (self.IHDR.color_type) {
-                0 => sig_grey_bits_t0 = self.original_img_buffer[offset],
-                2, 3 => {
-                    sig_red_bits_t23 = self.original_img_buffer[offset];
-                    sig_green_bits_t23 = self.original_img_buffer[offset + 1];
-                    sig_blue_bits_t23 = self.original_img_buffer[offset + 2];
-                },
-                4 => {
-                    sig_grey_bits_t4 = self.original_img_buffer[offset];
-                    sig_alpha_bits_t4 = self.original_img_buffer[offset + 1];
-                },
-                6 => {
-                    sig_red_bits_t6 = self.original_img_buffer[offset];
-                    sig_green_bits_t6 = self.original_img_buffer[offset + 1];
-                    sig_blue_bits_t6 = self.original_img_buffer[offset + 2];
-                    sig_alpha_bits_t6 = self.original_img_buffer[offset + 3];
-                },
-                else => unreachable,
-            }
-
-            self.sBIT = .{
-                .sig_grey_bits_t0 = sig_grey_bits_t0,
-                .sig_red_bits_t23 = sig_red_bits_t23,
-                .sig_green_bits_t23 = sig_green_bits_t23,
-                .sig_blue_bits_t23 = sig_blue_bits_t23,
-                .sig_grey_bits_t4 = sig_grey_bits_t4,
-                .sig_alpha_bits_t4 = sig_alpha_bits_t4,
-                .sig_red_bits_t6 = sig_red_bits_t6,
-                .sig_green_bits_t6 = sig_green_bits_t6,
-                .sig_blue_bits_t6 = sig_blue_bits_t6,
-                .sig_alpha_bits_t6 = sig_alpha_bits_t6,
-            };
-        }
-
-        fn handleeXIf(self: *Self, offset: u32, data_length: u32) void {
-            const end_pos = offset + data_length;
-            self.eXIf = .{
-                .data = self.original_img_buffer[offset..end_pos],
-            };
-        }
-
-        fn handlePLTE(self: *Self, offset: u32, data_length: u32) !void {
-            if (data_length % 3 != 0) return PNGReadError.PLTENotDivisibleByThree;
-            const end_pos = data_length + offset;
-
-            self.PLTE = .{
-                .sections = self.original_img_buffer[offset..end_pos],
-            };
-        }
-
-        fn handlesPLT(self: *Self, offset: u32, data_length: u32) !void {
-            const end_pos = data_length + offset;
-            const null_one = std.mem.indexOfScalar(u8, self.original_img_buffer[offset..end_pos], 0).?;
-            const null_one_abs = offset + null_one;
-            const palette_name = self.original_img_buffer[offset..null_one_abs];
-
-            const sample_depth = self.original_img_buffer[null_one_abs + 1];
-
-            if (sample_depth != 8 and sample_depth != 16) return PNGReadError.InvalidsPLTSampleDeth;
-            const palette_start_abs = null_one_abs + 2;
-            var palette_length_bytes = end_pos - palette_start_abs;
-
-            if (sample_depth == 8 and palette_length_bytes % 6 != 0) return PNGReadError.InvalidsPLT;
-            if (sample_depth == 16 and palette_length_bytes % 10 != 0) return PNGReadError.InvalidsPLT;
-
-            // # of palette structs to allocate
-            const palette_size = if (sample_depth == 8) palette_length_bytes / 6 else palette_length_bytes / 10;
-            var palette_slice = try self.uncompressed_allocator.alloc(chunks.splt_palette, palette_size);
-
-            var i: u32 = 0;
-            var byte_offset: u32 = 0;
-
-            if (sample_depth == 8) {
-                while (i < palette_size) {
-                    byte_offset = i * 6;
-                    palette_slice[i].red_8 = self.original_img_buffer[byte_offset];
-                    palette_slice[i].green_8 = self.original_img_buffer[byte_offset + 1];
-                    palette_slice[i].blue_8 = self.original_img_buffer[byte_offset + 2];
-                    palette_slice[i].alpha_8 = self.original_img_buffer[byte_offset + 3];
-                    palette_slice[i].red_16 = null;
-                    palette_slice[i].green_16 = null;
-                    palette_slice[i].blue_16 = null;
-                    palette_slice[i].alpha_16 = null;
-                    palette_slice[i].frequency =
-                        @as(u16, self.original_img_buffer[byte_offset + 4]) << 8 |
-                        @as(u16, self.original_img_buffer[byte_offset + 5]);
-
-                    i += 1;
-                }
-            } else {
-                while (i < palette_size) {
-                    byte_offset = i * 10;
-                    palette_slice[i].red_16 =
-                        @as(u16, self.original_img_buffer[byte_offset]) << 8 |
-                        @as(u16, self.original_img_buffer[byte_offset + 1]);
-                    palette_slice[i].green_16 =
-                        @as(u16, self.original_img_buffer[byte_offset + 2]) << 8 |
-                        @as(u16, self.original_img_buffer[byte_offset + 3]);
-                    palette_slice[i].blue_16 =
-                        @as(u16, self.original_img_buffer[byte_offset + 4]) << 8 |
-                        @as(u16, self.original_img_buffer[byte_offset + 5]);
-                    palette_slice[i].alpha_16 =
-                        @as(u16, self.original_img_buffer[byte_offset + 6]) << 8 |
-                        @as(u16, self.original_img_buffer[byte_offset + 7]);
-                    palette_slice[i].frequency =
-                        @as(u16, self.original_img_buffer[byte_offset + 8]) << 8 |
-                        @as(u16, self.original_img_buffer[byte_offset + 9]);
-                    palette_slice[i].red_8 = null;
-                    palette_slice[i].green_8 = null;
-                    palette_slice[i].blue_8 = null;
-                    palette_slice[i].alpha_8 = null;
-                    i += 1;
-                }
-            }
-
-            try self.sPLT_list.?.append(.{
-                .palette_name = palette_name,
-                .sample_depth = sample_depth,
-                .palette = palette_slice,
-            });
-        }
-
-        fn handlehIST(self: *Self, offset: u32, data_length: u32) !void {
-            var hist_len: u32 = undefined;
-
-            if (data_length % 2 == 0) {
-                hist_len = data_length / 2;
-            } else {
-                return PNGReadError.hISTNotValidU16Slice;
-            }
-            var frequencies_slice = try self.uncompressed_allocator.alloc(u16, hist_len);
-
-            for (0..hist_len) |i| {
-                var frequency: u16 =
-                    @as(u16, self.original_img_buffer[offset + i]) << 8 |
-                    @as(u16, self.original_img_buffer[offset + i + 1]);
-                frequencies_slice[i] = frequency;
-            }
-
-            self.hIST = .{
-                .frequencies = frequencies_slice,
-            };
-        }
-
-        fn handletIME(self: *Self, offset: u32) void {
-            const year: u16 = @as(u16, self.original_img_buffer[offset]) << 8 |
-                @as(u16, self.original_img_buffer[offset + 1]);
-
-            self.tIME = .{
-                .year = year,
-                .month = self.original_img_buffer[offset + 2],
-                .day = self.original_img_buffer[offset + 3],
-                .hour = self.original_img_buffer[offset + 4],
-                .minute = self.original_img_buffer[offset + 5],
-                .second = self.original_img_buffer[offset + 6],
-            };
-        }
-
-        fn handletEXt(self: *Self, offset: u32, data_length: u32) !void {
-            var keyword: []u8 = undefined;
-            var text: []u8 = undefined;
-
-            const end_pos = offset + data_length;
-            const null_pos = std.mem.indexOfScalar(u8, self.original_img_buffer[offset..end_pos], 0).?;
-            const keyword_end = offset + null_pos;
-            keyword = self.original_img_buffer[offset..keyword_end];
-            const text_start = offset + null_pos + 1;
-            const text_end = offset + data_length;
-            text = self.original_img_buffer[text_start..text_end];
-
-            try self.tEXt_list.?.append(.{
-                .keyword = keyword,
-                .text = text,
-            });
-        }
-
-        fn handlezTXt(self: *Self, offset: u32, data_length: u32) !void {
-            var keyword: []u8 = undefined;
-            var compression_method: u8 = undefined;
-
-            // check out https://www.zlib.net/zlib_how.html
-            const chunk: c_uint = 1024;
-            var temp_out_list = std.ArrayList(u8).init(self.uncompressed_allocator);
-            var temp_out_buf: [chunk]u8 = undefined;
-            var zlib_ret: c_int = undefined;
-            var decompressed_count: c_uint = undefined;
-
-            const end_pos = offset + data_length;
-            // safe downcast. chunk size always < 2^31
-            const null_pos = @as(u32, @intCast(std.mem.indexOfScalar(u8, self.original_img_buffer[offset..end_pos], 0).?));
-            const keyword_end = null_pos + offset;
-
-            keyword = self.original_img_buffer[offset..keyword_end];
-            compression_method = self.original_img_buffer[keyword_end + 1];
-            if (compression_method != 0) return PNGReadError.InvalidCompressionMethod;
-
-            var text_start = offset + null_pos + 2;
-            var text_end = offset + data_length;
-
-            var strm: zlib.z_stream = .{
-                .avail_in = 0,
-                .next_in = null,
-                .zalloc = null,
-                .zfree = null,
-                .@"opaque" = null,
-            };
-            zlib_ret = zlib.inflateInit(&strm);
-
-            if (zlib_ret != zlib.Z_OK) return PNGReadError.ZlibInflateInitError;
-
-            strm.avail_in = @as(c_uint, @intCast(text_end)) - text_start;
-            strm.next_in = self.original_img_buffer[text_start..text_end].ptr;
-            while (strm.avail_out == 0 or zlib_ret != zlib.Z_STREAM_END) {
-                // set out buffer
-                strm.next_out = &temp_out_buf;
-                strm.avail_out = chunk;
-
-                zlib_ret = zlib.inflate(&strm, zlib.Z_NO_FLUSH);
-                switch (zlib_ret) {
-                    zlib.Z_NEED_DICT => zlib_ret = zlib.Z_DATA_ERROR,
-                    zlib.Z_MEM_ERROR => {
-                        _ = zlib.inflateEnd(&strm);
-                        return PNGReadError.ZlibMemoryError;
-                    },
-                    else => {},
-                }
-                decompressed_count = chunk - strm.avail_out;
-                try temp_out_list.appendSlice(temp_out_buf[0..decompressed_count]);
-            }
-            // trim out extra memory from temporary list to give us a clean chunk
-            // of decompressed text data
-            temp_out_list.shrinkAndFree(temp_out_list.items.len);
-            _ = zlib.inflateEnd(&strm);
-            try self.zTXt_list.?.append(.{
-                .keyword = keyword,
-                .compression_method = compression_method,
-                .text = temp_out_list.items,
-            });
-        }
-
-        fn handleiTXt(self: *Self, offset: u32, data_length: u32) !void {
-            var keyword: []u8 = undefined;
-            var compression_flag: u8 = undefined;
-            var compression_method: u8 = undefined;
-            var language_tag: []u8 = undefined;
-            var translated_keyword: []u8 = undefined;
-            var text: []u8 = undefined;
-
-            const end_pos = offset + data_length;
-            const null_one = @as(u32, @intCast(std.mem.indexOfScalar(u8, self.original_img_buffer[offset..end_pos], 0).?));
-            const keyword_end = offset + null_one;
-            keyword = self.original_img_buffer[offset..keyword_end];
-            compression_flag = self.original_img_buffer[offset + null_one + 1];
-            compression_method = self.original_img_buffer[offset + null_one + 2];
-
-            const language_tag_start_abs = offset + null_one + 3;
-            if (compression_method != 0) return PNGReadError.InvalidCompressionMethod;
-            const null_two = @as(u32, @intCast(std.mem.indexOfScalar(u8, self.original_img_buffer[language_tag_start_abs..end_pos], 0).?));
-            const language_tag_end_abs = language_tag_start_abs + null_two;
-            language_tag = self.original_img_buffer[language_tag_start_abs..language_tag_end_abs];
-
-            const translated_keyword_start_abs = language_tag_end_abs + 1;
-            const null_three = @as(u32, @intCast(std.mem.indexOfScalar(u8, self.original_img_buffer[translated_keyword_start_abs..end_pos], 0).?));
-            const translated_keyword_end_abs = translated_keyword_start_abs + null_three;
-
-            translated_keyword = self.original_img_buffer[translated_keyword_start_abs..translated_keyword_end_abs];
-
-            const text_start_abs = translated_keyword_end_abs + 1;
-            if (compression_flag == 0) {
-                text = self.original_img_buffer[text_start_abs..end_pos];
-                try self.iTXt_list.?.append(.{
-                    .keyword = keyword,
-                    .compression_flag = compression_flag,
-                    .compression_method = compression_method,
-                    .language_tag = language_tag,
-                    .translated_keyword = translated_keyword,
-                    .text = text,
-                });
-                return;
-            }
-
-            const chunk: c_uint = 1024;
-            var temp_out_list = std.ArrayList(u8).init(self.uncompressed_allocator);
-            var temp_out_buf: [chunk]u8 = undefined;
-            var decompressed_count: c_uint = undefined;
-            var zlib_ret: c_int = undefined;
-
-            var strm: zlib.z_stream = .{
-                .avail_in = 0,
-                .next_in = null,
-                .zalloc = null,
-                .zfree = null,
-                .@"opaque" = null,
-            };
-            zlib_ret = zlib.inflateInit(&strm);
-
-            if (zlib_ret != zlib.Z_OK) return PNGReadError.ZlibInflateInitError;
-
-            strm.avail_in = @as(c_uint, @intCast(end_pos)) - text_start_abs;
-            strm.next_in = self.original_img_buffer[text_start_abs..end_pos].ptr;
-            while (strm.avail_out == 0 or zlib_ret != zlib.Z_STREAM_END) {
-                // set out buffer
-                strm.next_out = &temp_out_buf;
-                strm.avail_out = chunk;
-
-                zlib_ret = zlib.inflate(&strm, zlib.Z_NO_FLUSH);
-                switch (zlib_ret) {
-                    zlib.Z_NEED_DICT => zlib_ret = zlib.Z_DATA_ERROR,
-                    zlib.Z_MEM_ERROR => {
-                        _ = zlib.inflateEnd(&strm);
-                        return PNGReadError.ZlibMemoryError;
-                    },
-                    else => {},
-                }
-                decompressed_count = chunk - strm.avail_out;
-                try temp_out_list.appendSlice(temp_out_buf[0..decompressed_count]);
-            }
-            // trim out extra memory from temporary list to give us a clean chunk
-            // of decompressed text data
-            temp_out_list.shrinkAndFree(temp_out_list.items.len);
-            _ = zlib.inflateEnd(&strm);
-
-            try self.iTXt_list.?.append(.{
-                .keyword = keyword,
-                .compression_flag = compression_flag,
-                .compression_method = compression_method,
-                .language_tag = language_tag,
-                .translated_keyword = translated_keyword,
-                .text = temp_out_list.items,
-            });
-        }
-
-        fn handlesRGB(self: *Self, offset: u32) void {
-            self.sRGB = .{
-                .rendering_intent = self.original_img_buffer[offset],
-            };
-        }
-
-        fn handlegAMA(self: *Self, offset: u32) void {
-            const gama: u32 =
-                @as(u32, self.original_img_buffer[offset]) << 24 |
-                @as(u32, self.original_img_buffer[offset + 1]) << 16 |
-                @as(u32, self.original_img_buffer[offset + 2]) << 8 |
-                @as(u32, self.original_img_buffer[offset + 3]);
-
-            self.gAMA = .{
-                .image_gama = gama,
-            };
         }
     };
 }
