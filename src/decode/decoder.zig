@@ -29,9 +29,7 @@ const DecoderConfig = struct {
     cICP: bool = false,
     mDCv: bool = false,
     cLLi: bool = false,
-    acTL: bool = false,
-    fcTL: bool = false,
-    fdAT: bool = false,
+    animation: bool = false,
 };
 
 pub fn pngDecoder() type {
@@ -111,14 +109,14 @@ pub fn pngDecoder() type {
             }
 
             var fcTL_list: ?std.ArrayList(chunks.fcTL) = null;
-            if (config.fdAT) {
+            if (config.animation) {
                 fcTL_list = std.ArrayList(chunks.fcTL).init(
                     uncompressedAllocator,
                 );
             }
 
             var fdAT_list: ?std.ArrayList(chunks.fdAT) = null;
-            if (config.fdAT) {
+            if (config.animation) {
                 fdAT_list = std.ArrayList(chunks.fdAT).init(
                     uncompressedAllocator,
                 );
@@ -320,11 +318,12 @@ pub fn pngDecoder() type {
                         self.image_data_start = offset;
                     }
                 },
-                @intFromEnum(ChunkTypes.fdAT) => {
+                @intFromEnum(ChunkTypes.fcTL) => {
                     if (self.image_data_start == 0) {
                         self.image_data_start = offset;
                     }
                 },
+                @intFromEnum(ChunkTypes.fdAT) => {},
                 @intFromEnum(ChunkTypes.IEND) => {},
                 @intFromEnum(ChunkTypes.IHDR) => try handlers.handleIHDR(self),
                 @intFromEnum(ChunkTypes.PLTE) => try handlers.handlePLTE(self, offset + 8, data_length),
@@ -342,8 +341,7 @@ pub fn pngDecoder() type {
                 @intFromEnum(ChunkTypes.cHRM) => if (self.config.cHRM) handlers.handlecHRM(self, offset + 8),
                 @intFromEnum(ChunkTypes.tIME) => if (self.config.tIME) handlers.handletIME(self, offset + 8),
                 @intFromEnum(ChunkTypes.mDCv) => if (self.config.mDCv) handlers.handlemDCv(self, offset + 8),
-                @intFromEnum(ChunkTypes.acTL) => if (self.config.acTL) handlers.handleacTL(self, offset + 8),
-                @intFromEnum(ChunkTypes.fcTL) => if (self.config.fcTL) try handlers.handlefcTL(self, offset + 8),
+                @intFromEnum(ChunkTypes.acTL) => if (self.config.animation) handlers.handleacTL(self, offset + 8),
                 @intFromEnum(ChunkTypes.cLLi) => if (self.config.cLLi) handlers.handlecLLi(self, offset + 8),
                 @intFromEnum(ChunkTypes.cICP) => if (self.config.cICP) try handlers.handlecICP(self, offset + 8),
                 @intFromEnum(ChunkTypes.iCCP) => if (self.config.iCCP) try handlers.handleiCCP(self, offset + 8, data_length),
@@ -383,7 +381,10 @@ pub fn pngDecoder() type {
 
             switch (data_type) {
                 @intFromEnum(ChunkTypes.IDAT) => try handlers.handleIDAT(self, offset + 8, data_length),
+                @intFromEnum(ChunkTypes.fcTL) => if (self.config.animation) try handlers.handlefcTL(self, offset + 8),
+                @intFromEnum(ChunkTypes.fdAT) => if (self.config.animation) try handlers.handlefdAT(self, offset + 8, data_length),
                 @intFromEnum(ChunkTypes.IEND) => try handlers.unFilterImageData(self),
+
                 else => {},
             }
             return data_length + 12;

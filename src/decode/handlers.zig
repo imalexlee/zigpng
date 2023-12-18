@@ -44,7 +44,7 @@ pub fn unFilterImageData(decoder: *Decoder) !void {
 
     var dest_len: c_ulong = uncompressed_buf.len;
     _ = zlib.uncompress(uncompressed_buf.ptr, &dest_len, decoder.image_data_list.items.ptr, decoder.image_data_list.items.len);
-
+    // to handle fdat, maybe just do this but iterate over each frame height and width through fctl_list
     const line_width = if (bits_per_line % 8 == 0) bits_per_line / 8 + 1 else (bits_per_line / 8 + 1) + 1;
 
     for (0..decoder.IHDR.height) |i| {
@@ -823,7 +823,7 @@ pub fn handlefcTL(decoder: *Decoder, offset: u32) !void {
     });
 }
 
-pub fn handlefdAT(decoder: *Decoder, offset: u32, data_length: u32) void {
+pub fn handlefdAT(decoder: *Decoder, offset: u32, data_length: u32) !void {
     const sequence_number: u32 =
         @as(u32, decoder.original_img_buffer[offset]) << 24 |
         @as(u32, decoder.original_img_buffer[offset + 1]) << 16 |
@@ -831,8 +831,10 @@ pub fn handlefdAT(decoder: *Decoder, offset: u32, data_length: u32) void {
         @as(u32, decoder.original_img_buffer[offset + 3]);
     if (sequence_number != decoder.curr_sequence_num) return PNGReadError.InvalidAnimationSequenceNumber;
     decoder.curr_sequence_num += 1;
+    const start_pos = offset + 4;
     const end_pos = offset + data_length;
-    const compressed_buf = decoder.original_img_buffer[offset..end_pos];
+
+    const compressed_buf = decoder.original_img_buffer[start_pos..end_pos];
     // TODO: rename image_data_list to something general for both IDAT and fdAT
     _ = try decoder.image_data_list.appendSlice(compressed_buf);
 }
