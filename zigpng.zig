@@ -21,6 +21,8 @@ test {
         @import("tests/exif.zig"),
         @import("tests/compression_levels.zig"),
         @import("tests/suggested_palette.zig"),
+        @import("tests/profiles.zig"),
+        @import("tests/animation.zig"),
         @import("tests/helpers.zig"),
     }) |source_file| std.testing.refAllDeclsRecursive(source_file);
 }

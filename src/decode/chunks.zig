@@ -78,9 +78,9 @@ pub const gAMA = struct {
 
 pub const iCCP = struct {
     profile_name: []u8,
-    null_seperator: u8,
+    // null seperator (u8)
     compression_method: u8,
-    compressed_profile: []u8,
+    profile: []u8,
 };
 
 /// t0:type 0. t23:type 2 or 3. t4:type 4. t6:type 6.
@@ -109,7 +109,7 @@ pub const cICP = struct {
 };
 
 pub const mDCv = struct {
-    mastering_dcp: [12]u8,
+    mastering_dcp: []u8,
     mastering_dwpc: u32,
     mastering_dmaxl: u32,
     mastering_dminl: u32,
@@ -132,7 +132,7 @@ pub const zTXt = struct {
     keyword: []u8,
     // null seperator (u8)
     compression_method: u8,
-    uncompressed_text: []u8,
+    text: []u8,
 };
 
 pub const iTXt = struct {
@@ -144,7 +144,7 @@ pub const iTXt = struct {
     // null seperator (u8)
     translated_keyword: []u8,
     // null seperator (u8)
-    uncompressed_text: []u8,
+    text: []u8,
 };
 
 // MISCELLANEOUS INFORMATION
