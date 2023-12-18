@@ -27,39 +27,94 @@ pub fn handleCRC(decoder: *Decoder, crc: *c_ulong, type_offset: u32, data_length
 
 // TODO: Rename to something general to represent IDAT and fdAT
 pub fn unFilterImageData(decoder: *Decoder) !void {
-    const bits_per_line = decoder.IHDR.width * decoder.sample_size * decoder.IHDR.bit_depth;
-    // length of BYTES needed to store all pixel data w/o filter byte
-    const pixel_len = switch (decoder.IHDR.bit_depth) {
-        8 => decoder.sample_size * (decoder.IHDR.height * decoder.IHDR.width),
-        16 => decoder.sample_size * 2 * (decoder.IHDR.height * decoder.IHDR.width),
-        else => if (bits_per_line % 8 == 0) bits_per_line / 8 * decoder.IHDR.height else (bits_per_line / 8 + 1) * decoder.IHDR.height,
-    };
+    // TODO: could be shorter for frames < IHDR.width
+    // animation is set to true in config if fctl list is initialized
+    var bits_per_line: u32 = 0;
+    var pixel_len: u32 = 0;
+    // amount of total filter bytes present in entire image
+    var filter_bytes_count: u32 = 0;
+    if (decoder.fcTL_list != null) {
+        // iterate through all the frame information chunks and sum up the pixel length required for all frames
+        for (decoder.fcTL_list.?.items) |fcTL| {
+            bits_per_line = fcTL.width * decoder.sample_size * decoder.IHDR.bit_depth;
+            pixel_len += switch (decoder.IHDR.bit_depth) {
+                8 => decoder.sample_size * (fcTL.height * fcTL.width),
+                16 => decoder.sample_size * 2 * (fcTL.height * fcTL.width),
+                else => if (bits_per_line % 8 == 0) bits_per_line / 8 * fcTL.height else (bits_per_line / 8 + 1) * fcTL.height,
+            };
+            filter_bytes_count += fcTL.height;
+        }
+    } else {
+        bits_per_line = decoder.IHDR.width * decoder.sample_size * decoder.IHDR.bit_depth;
+        // length of BYTES needed to store all pixel data w/o filter byte
+        // TODO: could be shorter for frames < IHDR.width and/or < IHDR.height
+        // need a way to total the pixel len and loop over each frame
+        // calculates pixel length for the single idat frame
+        pixel_len = switch (decoder.IHDR.bit_depth) {
+            8 => decoder.sample_size * (decoder.IHDR.height * decoder.IHDR.width),
+            16 => decoder.sample_size * 2 * (decoder.IHDR.height * decoder.IHDR.width),
+            else => if (bits_per_line % 8 == 0) bits_per_line / 8 * decoder.IHDR.height else (bits_per_line / 8 + 1) * decoder.IHDR.height,
+        };
+        filter_bytes_count = decoder.IHDR.height;
+    }
 
-    const uncompressed_len = pixel_len + decoder.IHDR.height;
+    // TODO: loop through all fctl frames to generate accurate uncompressed_len. this only accounts for first IDAT
+    // also keep a running total of all heights to add as the filter bytes
+    // total uncompressed length is all of the pixels + total amount of filter bytes at the beginning of each scanline
+    const uncompressed_len = pixel_len + filter_bytes_count;
 
+    //KEEP BOTH
     const uncompressed_buf = try decoder.uncompressed_allocator.alloc(u8, uncompressed_len);
     defer decoder.uncompressed_allocator.free(uncompressed_buf);
 
+    // KEEP
     var pixel_list = try std.ArrayList(u8).initCapacity(decoder.uncompressed_allocator, pixel_len);
 
+    //KEEP BOTH
     var dest_len: c_ulong = uncompressed_buf.len;
     _ = zlib.uncompress(uncompressed_buf.ptr, &dest_len, decoder.image_data_list.items.ptr, decoder.image_data_list.items.len);
     // to handle fdat, maybe just do this but iterate over each frame height and width through fctl_list
-    const line_width = if (bits_per_line % 8 == 0) bits_per_line / 8 + 1 else (bits_per_line / 8 + 1) + 1;
 
-    for (0..decoder.IHDR.height) |i| {
-        switch (uncompressed_buf[i * line_width]) {
-            1 => unfliter.unFilterSub(uncompressed_buf, i, line_width, decoder.sample_size),
-            2 => unfliter.unFilterUp(uncompressed_buf, i, line_width, decoder.sample_size),
-            3 => unfliter.unFilterAverage(uncompressed_buf, i, line_width, decoder.sample_size),
-            4 => unfliter.unFilterPaeth(uncompressed_buf, i, line_width, decoder.sample_size),
-            else => {},
+    var line_width: u32 = 0;
+    // KEEP
+    //
+    if (decoder.fcTL_list != null) {
+        for (decoder.fcTL_list.?.items) |fcTL| {
+            bits_per_line = fcTL.width * decoder.sample_size * decoder.IHDR.bit_depth;
+            line_width = if (bits_per_line % 8 == 0) bits_per_line / 8 + 1 else (bits_per_line / 8 + 1) + 1;
+            for (0..fcTL.height) |i| {
+                switch (uncompressed_buf[i * line_width]) {
+                    1 => unfliter.unFilterSub(uncompressed_buf, i, line_width, decoder.sample_size),
+                    2 => unfliter.unFilterUp(uncompressed_buf, i, line_width, decoder.sample_size),
+                    3 => unfliter.unFilterAverage(uncompressed_buf, i, line_width, decoder.sample_size),
+                    4 => unfliter.unFilterPaeth(uncompressed_buf, i, line_width, decoder.sample_size),
+                    else => {},
+                }
+                const start_pos = i * line_width + 1;
+                const end_pos = start_pos + line_width - 1;
+                try pixel_list.appendSlice(uncompressed_buf[start_pos..end_pos]);
+            }
         }
-        const start_pos = i * line_width + 1;
-        const end_pos = start_pos + line_width - 1;
-        try pixel_list.appendSlice(uncompressed_buf[start_pos..end_pos]);
+    } else {
+        line_width = if (bits_per_line % 8 == 0) bits_per_line / 8 + 1 else (bits_per_line / 8 + 1) + 1;
+
+        // TODO: do this logic but instead of going through IHDR.height, go through the current frames height
+        // wrap this for loop with outer loop that iterates through number of frames
+        for (0..decoder.IHDR.height) |i| {
+            switch (uncompressed_buf[i * line_width]) {
+                1 => unfliter.unFilterSub(uncompressed_buf, i, line_width, decoder.sample_size),
+                2 => unfliter.unFilterUp(uncompressed_buf, i, line_width, decoder.sample_size),
+                3 => unfliter.unFilterAverage(uncompressed_buf, i, line_width, decoder.sample_size),
+                4 => unfliter.unFilterPaeth(uncompressed_buf, i, line_width, decoder.sample_size),
+                else => {},
+            }
+            const start_pos = i * line_width + 1;
+            const end_pos = start_pos + line_width - 1;
+            try pixel_list.appendSlice(uncompressed_buf[start_pos..end_pos]);
+        }
     }
     decoder.pixel_buf = pixel_list.items;
+    // END INNER LOOP
 }
 
 // CRITICAL CHUNKS
