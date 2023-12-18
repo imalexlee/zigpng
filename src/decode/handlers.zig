@@ -3,8 +3,10 @@ const png_decoder = @import("decoder.zig");
 const Decoder = png_decoder.pngDecoder();
 const unfliter = @import("./unfilter.zig");
 const chunks = @import("./chunks.zig");
-const PNGReadError = png_decoder.PNGReadError;
 const zlib = @cImport(@cInclude("zlib.h"));
+const errors = @import("errors.zig");
+
+const PNGReadError = errors.PNGReadError;
 
 // NON CHUNKS
 
@@ -22,7 +24,9 @@ pub fn handleCRC(decoder: *Decoder, crc: *c_ulong, type_offset: u32, data_length
         return PNGReadError.CorruptedCRC;
     }
 }
-pub fn unFilterIDAT(decoder: *Decoder) !void {
+
+// TODO: Rename to something general to represent IDAT and fdAT
+pub fn unFilterImageData(decoder: *Decoder) !void {
     const bits_per_line = decoder.IHDR.width * decoder.sample_size * decoder.IHDR.bit_depth;
     // length of BYTES needed to store all pixel data w/o filter byte
     const pixel_len = switch (decoder.IHDR.bit_depth) {
@@ -39,7 +43,7 @@ pub fn unFilterIDAT(decoder: *Decoder) !void {
     var pixel_list = try std.ArrayList(u8).initCapacity(decoder.uncompressed_allocator, pixel_len);
 
     var dest_len: c_ulong = uncompressed_buf.len;
-    _ = zlib.uncompress(uncompressed_buf.ptr, &dest_len, decoder.idat_list.items.ptr, decoder.idat_list.items.len);
+    _ = zlib.uncompress(uncompressed_buf.ptr, &dest_len, decoder.image_data_list.items.ptr, decoder.image_data_list.items.len);
 
     const line_width = if (bits_per_line % 8 == 0) bits_per_line / 8 + 1 else (bits_per_line / 8 + 1) + 1;
 
@@ -110,7 +114,7 @@ pub fn handleIHDR(decoder: *Decoder) !void {
 pub fn handleIDAT(decoder: *Decoder, offset: u32, data_length: u32) !void {
     const end_pos = offset + data_length;
     const compressed_buf = decoder.original_img_buffer[offset..end_pos];
-    _ = try decoder.idat_list.appendSlice(compressed_buf);
+    _ = try decoder.image_data_list.appendSlice(compressed_buf);
 }
 
 pub fn handlePLTE(decoder: *Decoder, offset: u32, data_length: u32) !void {
@@ -771,12 +775,14 @@ pub fn handleacTL(decoder: *Decoder, offset: u32) void {
     };
 }
 
-pub fn handlefcTL(decoder: *Decoder, offset: u32) void {
+pub fn handlefcTL(decoder: *Decoder, offset: u32) !void {
     const sequence_number: u32 =
         @as(u32, decoder.original_img_buffer[offset]) << 24 |
         @as(u32, decoder.original_img_buffer[offset + 1]) << 16 |
         @as(u32, decoder.original_img_buffer[offset + 2]) << 8 |
         @as(u32, decoder.original_img_buffer[offset + 3]);
+    if (sequence_number != decoder.curr_sequence_num) return PNGReadError.InvalidAnimationSequenceNumber;
+    decoder.curr_sequence_num += 1;
     const width: u32 =
         @as(u32, decoder.original_img_buffer[offset + 4]) << 24 |
         @as(u32, decoder.original_img_buffer[offset + 5]) << 16 |
@@ -804,7 +810,7 @@ pub fn handlefcTL(decoder: *Decoder, offset: u32) void {
         @as(u16, decoder.original_img_buffer[offset + 22]) << 8 |
         @as(u16, decoder.original_img_buffer[offset + 23]);
 
-    decoder.fcTL = .{
+    try decoder.fcTL_list.?.append(.{
         .sequence_number = sequence_number,
         .width = width,
         .height = height,
@@ -814,5 +820,19 @@ pub fn handlefcTL(decoder: *Decoder, offset: u32) void {
         .delay_den = delay_den,
         .dispose_op = decoder.original_img_buffer[offset + 24],
         .blend_op = decoder.original_img_buffer[offset + 25],
-    };
+    });
+}
+
+pub fn handlefdAT(decoder: *Decoder, offset: u32, data_length: u32) void {
+    const sequence_number: u32 =
+        @as(u32, decoder.original_img_buffer[offset]) << 24 |
+        @as(u32, decoder.original_img_buffer[offset + 1]) << 16 |
+        @as(u32, decoder.original_img_buffer[offset + 2]) << 8 |
+        @as(u32, decoder.original_img_buffer[offset + 3]);
+    if (sequence_number != decoder.curr_sequence_num) return PNGReadError.InvalidAnimationSequenceNumber;
+    decoder.curr_sequence_num += 1;
+    const end_pos = offset + data_length;
+    const compressed_buf = decoder.original_img_buffer[offset..end_pos];
+    // TODO: rename image_data_list to something general for both IDAT and fdAT
+    _ = try decoder.image_data_list.appendSlice(compressed_buf);
 }

@@ -2,24 +2,12 @@ const std = @import("std");
 const chunks = @import("./chunks.zig");
 const handlers = @import("handlers.zig");
 const zlib = @cImport(@cInclude("zlib.h"));
-
 const ChunkTypes = chunks.ChunkTypes;
+const errors = @import("errors.zig");
 const assert = std.debug.assert;
 
+const PNGReadError = errors.PNGReadError;
 const PNG_SIGNATURE = [8]u8{ 137, 80, 78, 71, 13, 10, 26, 10 };
-
-pub const PNGReadError = error{
-    NotPNG,
-    CorruptedCRC,
-    PLTENotDivisibleByThree,
-    hISTNotValidU16Slice,
-    InvalidsPLT,
-    InvalidsPLTSampleDeth,
-    InvalidcICPMatrixCoefficient,
-    InvalidCompressionMethod,
-    ZlibInflateInitError,
-    ZlibMemoryError,
-};
 
 /// defines whether or not to process the following
 const DecoderConfig = struct {
@@ -43,6 +31,7 @@ const DecoderConfig = struct {
     cLLi: bool = false,
     acTL: bool = false,
     fcTL: bool = false,
+    fdAT: bool = false,
 };
 
 pub fn pngDecoder() type {
@@ -52,9 +41,11 @@ pub fn pngDecoder() type {
         original_img_allocator: std.mem.Allocator = undefined,
         file_size: u64 = 0,
 
-        idat_start: u32 = 0,
-        idat_list: std.ArrayList(u8) = undefined,
+        image_data_start: u32 = 0,
+        curr_sequence_num: u32 = 0,
+        image_data_list: std.ArrayList(u8) = undefined,
         idat_allocator: std.mem.Allocator = undefined,
+
         pixel_buf: []u8 = undefined,
         uncompressed_allocator: std.mem.Allocator = undefined,
 
@@ -64,6 +55,8 @@ pub fn pngDecoder() type {
         zTXt_list: ?std.ArrayList(chunks.zTXt),
         iTXt_list: ?std.ArrayList(chunks.iTXt),
         sPLT_list: ?std.ArrayList(chunks.sPLT),
+        fcTL_list: ?std.ArrayList(chunks.fcTL),
+        fdAT_list: ?std.ArrayList(chunks.fdAT),
 
         IHDR: chunks.IHDR = undefined,
         pHYS: ?chunks.pHYs = null,
@@ -82,7 +75,6 @@ pub fn pngDecoder() type {
         mDCv: ?chunks.mDCv = null,
         cLLi: ?chunks.cLLi = null,
         acTL: ?chunks.acTL = null,
-        fcTL: ?chunks.fcTL = null,
 
         config: DecoderConfig,
 
@@ -90,7 +82,7 @@ pub fn pngDecoder() type {
         ///
         /// uncompressed_allocator used by zlib to store just the decompressed IDAT chunk data with filter byte intact at scanline start
         pub fn init(idatAllocator: std.mem.Allocator, uncompressedAllocator: std.mem.Allocator, config: DecoderConfig) !Self {
-            var idat_list = std.ArrayList(u8).init(
+            var image_data_list = std.ArrayList(u8).init(
                 idatAllocator,
             );
             var tEXt_list: ?std.ArrayList(chunks.tEXt) = null;
@@ -118,12 +110,28 @@ pub fn pngDecoder() type {
                 );
             }
 
+            var fcTL_list: ?std.ArrayList(chunks.fcTL) = null;
+            if (config.fdAT) {
+                fcTL_list = std.ArrayList(chunks.fcTL).init(
+                    uncompressedAllocator,
+                );
+            }
+
+            var fdAT_list: ?std.ArrayList(chunks.fdAT) = null;
+            if (config.fdAT) {
+                fdAT_list = std.ArrayList(chunks.fdAT).init(
+                    uncompressedAllocator,
+                );
+            }
+
             return Self{
-                .idat_list = idat_list,
+                .image_data_list = image_data_list,
                 .tEXt_list = tEXt_list,
                 .zTXt_list = zTXt_list,
                 .iTXt_list = iTXt_list,
                 .sPLT_list = sPLT_list,
+                .fcTL_list = fcTL_list,
+                .fdAT_list = fdAT_list,
                 .idat_allocator = idatAllocator,
                 .uncompressed_allocator = uncompressedAllocator,
                 .config = config,
@@ -132,7 +140,7 @@ pub fn pngDecoder() type {
 
         /// Cannot reuse this decoder instance after this operation
         pub fn deinit(self: *Self) void {
-            self.idat_list.deinit();
+            self.image_data_list.deinit();
             self.original_img_allocator.free(self.original_img_buffer);
             self.uncompressed_allocator.free(self.pixel_buf);
             if (self.hIST != null) self.uncompressed_allocator.free(self.hIST.?.frequencies);
@@ -163,8 +171,12 @@ pub fn pngDecoder() type {
                 }
                 self.sPLT_list.?.clearAndFree();
             }
-            if (self.config.iCCP) {
+            if (self.iCCP != null) {
                 self.uncompressed_allocator.free(self.iCCP.?.profile);
+            }
+
+            if (self.fcTL_list != null) {
+                self.fcTL_list.?.clearAndFree();
             }
             self.* = undefined;
         }
@@ -173,7 +185,7 @@ pub fn pngDecoder() type {
         pub fn reset(self: *Self) void {
             self.original_img_allocator.free(self.original_img_buffer);
             self.original_img_buffer = undefined;
-            self.idat_list.clearAndFree();
+            self.image_data_list.clearAndFree();
             self.uncompressed_allocator.free(self.pixel_buf);
             if (self.hIST != null) self.uncompressed_allocator.free(self.hIST.?.frequencies);
             if (self.sPLT != null) self.uncompressed_allocator.free(self.sPLT);
@@ -211,14 +223,17 @@ pub fn pngDecoder() type {
                 }
             }
 
-            if (self.config.iCCP) {
+            if (self.iCCP != null) {
                 self.uncompressed_allocator.free(self.iCCP.?.profile);
                 self.iCCP = null;
+            }
+            if (self.fcTL_list != null) {
+                self.fcTL_list.?.clearAndFree();
             }
             self.file_size = undefined;
             self.pixel_buf = undefined;
             self.sample_size = undefined;
-            self.idat_start = 0;
+            self.image_data_start = 0;
 
             self.IHDR = undefined;
 
@@ -297,9 +312,17 @@ pub fn pngDecoder() type {
             }
 
             switch (data_type) {
+                // if we come across image data, set the start point to be here
+                // if the start point isn't at zero (we already found image data),
+                // continue reading info while ignoring image data
                 @intFromEnum(ChunkTypes.IDAT) => {
-                    if (self.idat_start == 0) {
-                        self.idat_start = offset;
+                    if (self.image_data_start == 0) {
+                        self.image_data_start = offset;
+                    }
+                },
+                @intFromEnum(ChunkTypes.fdAT) => {
+                    if (self.image_data_start == 0) {
+                        self.image_data_start = offset;
                     }
                 },
                 @intFromEnum(ChunkTypes.IEND) => {},
@@ -320,25 +343,19 @@ pub fn pngDecoder() type {
                 @intFromEnum(ChunkTypes.tIME) => if (self.config.tIME) handlers.handletIME(self, offset + 8),
                 @intFromEnum(ChunkTypes.mDCv) => if (self.config.mDCv) handlers.handlemDCv(self, offset + 8),
                 @intFromEnum(ChunkTypes.acTL) => if (self.config.acTL) handlers.handleacTL(self, offset + 8),
-                @intFromEnum(ChunkTypes.fcTL) => if (self.config.fcTL) handlers.handlefcTL(self, offset + 8),
+                @intFromEnum(ChunkTypes.fcTL) => if (self.config.fcTL) try handlers.handlefcTL(self, offset + 8),
                 @intFromEnum(ChunkTypes.cLLi) => if (self.config.cLLi) handlers.handlecLLi(self, offset + 8),
                 @intFromEnum(ChunkTypes.cICP) => if (self.config.cICP) try handlers.handlecICP(self, offset + 8),
                 @intFromEnum(ChunkTypes.iCCP) => if (self.config.iCCP) try handlers.handleiCCP(self, offset + 8, data_length),
                 @intFromEnum(ChunkTypes.sBIT) => if (self.config.sBIT) handlers.handlesBIT(self, offset + 8),
-
-                else => std.debug.print("unhandled chunk {c}{c}{c}{c}\n", .{
-                    self.original_img_buffer[offset + 4],
-                    self.original_img_buffer[offset + 5],
-                    self.original_img_buffer[offset + 6],
-                    self.original_img_buffer[offset + 7],
-                }),
+                else => {},
             }
             // 4 byte length + 4 byte type + {{data_length}} data + 4 byte crc
             return data_length + 12;
         }
 
         pub fn readImageData(self: *Self) !void {
-            var offset: u32 = self.idat_start;
+            var offset: u32 = self.image_data_start;
             while (offset < self.file_size - 11) {
                 offset += try self.readImageDataChunk(offset);
             }
@@ -366,13 +383,8 @@ pub fn pngDecoder() type {
 
             switch (data_type) {
                 @intFromEnum(ChunkTypes.IDAT) => try handlers.handleIDAT(self, offset + 8, data_length),
-                @intFromEnum(ChunkTypes.IEND) => try handlers.unFilterIDAT(self),
-                else => std.debug.print("unhandled chunk {c}{c}{c}{c}\n", .{
-                    self.original_img_buffer[offset + 4],
-                    self.original_img_buffer[offset + 5],
-                    self.original_img_buffer[offset + 6],
-                    self.original_img_buffer[offset + 7],
-                }),
+                @intFromEnum(ChunkTypes.IEND) => try handlers.unFilterImageData(self),
+                else => {},
             }
             return data_length + 12;
         }
