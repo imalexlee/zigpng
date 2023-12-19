@@ -140,7 +140,9 @@ pub fn pngDecoder() type {
         pub fn deinit(self: *Self) void {
             self.image_data_list.deinit();
             self.original_img_allocator.free(self.original_img_buffer);
-            self.uncompressed_allocator.free(self.pixel_buf);
+
+            // no pixel data if image data was never found
+            if (self.image_data_start > 0) self.uncompressed_allocator.free(self.pixel_buf);
             if (self.hIST != null) self.uncompressed_allocator.free(self.hIST.?.frequencies);
 
             if (self.tEXt_list != null) {
@@ -184,9 +186,16 @@ pub fn pngDecoder() type {
             self.original_img_allocator.free(self.original_img_buffer);
             self.original_img_buffer = undefined;
             self.image_data_list.clearAndFree();
-            self.uncompressed_allocator.free(self.pixel_buf);
+            self.file_size = undefined;
+            // no pixel data if image data was never found
+            if (self.image_data_start > 0) self.uncompressed_allocator.free(self.pixel_buf);
             if (self.hIST != null) self.uncompressed_allocator.free(self.hIST.?.frequencies);
-            if (self.sPLT != null) self.uncompressed_allocator.free(self.sPLT);
+            if (self.sPLT_list != null) {
+                for (self.sPLT_list.?.items) |sPLT| {
+                    self.uncompressed_allocator.free(sPLT.palette);
+                }
+                self.sPLT_list.?.clearAndFree();
+            }
             if (self.tEXt_list != null) {
                 self.tEXt_list.?.clearAndFree();
                 self.tEXt_list = null;
@@ -228,7 +237,9 @@ pub fn pngDecoder() type {
             if (self.fcTL_list != null) {
                 self.fcTL_list.?.clearAndFree();
             }
-            self.file_size = undefined;
+            if (self.fcTL_list != null) {
+                self.fcTL_list.?.clearAndFree();
+            }
             self.pixel_buf = undefined;
             self.sample_size = undefined;
             self.image_data_start = 0;
@@ -242,14 +253,11 @@ pub fn pngDecoder() type {
             self.cHRM = null;
             self.hIST = null;
             self.tIME = null;
-            self.zTXt = null;
-            self.iTXt = null;
             self.eXIf = null;
             self.cICP = null;
             self.mDCv = null;
             self.cLLi = null;
             self.acTL = null;
-            self.fcTL = null;
         }
 
         /// loads an image from a give path in the current working directory
@@ -272,10 +280,9 @@ pub fn pngDecoder() type {
         pub fn readInfo(self: *Self) !void {
             inline for (PNG_SIGNATURE, 0..) |value, i| {
                 if (value != self.original_img_buffer[i]) {
-                    return PNGReadError.NotPNG;
+                    return PNGReadError.InvalidPNGSignature;
                 }
             }
-
             // start after the PNG signature, at byte index 8
             var offset: u32 = 8;
             while (offset < self.file_size - 11) {
@@ -324,7 +331,9 @@ pub fn pngDecoder() type {
                     }
                 },
                 @intFromEnum(ChunkTypes.fdAT) => {},
-                @intFromEnum(ChunkTypes.IEND) => {},
+                @intFromEnum(ChunkTypes.IEND) => {
+                    if (self.image_data_start == 0) return PNGReadError.MissingIDAT;
+                },
                 @intFromEnum(ChunkTypes.IHDR) => try handlers.handleIHDR(self),
                 @intFromEnum(ChunkTypes.PLTE) => try handlers.handlePLTE(self, offset + 8, data_length),
                 @intFromEnum(ChunkTypes.tRNS) => try handlers.handletRNS(self, offset + 8, data_length),

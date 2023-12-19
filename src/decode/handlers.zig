@@ -21,7 +21,7 @@ pub fn handleCRC(decoder: *Decoder, crc: *c_ulong, type_offset: u32, data_length
         @as(u32, decoder.original_img_buffer[end_pos + 2]) << 8 |
         @as(u32, decoder.original_img_buffer[end_pos + 3]);
     if (crc.* != original_crc) {
-        return PNGReadError.CorruptedCRC;
+        return PNGReadError.InvalidChecksum;
     }
 }
 
@@ -132,10 +132,19 @@ pub fn handleIHDR(decoder: *Decoder) !void {
         @as(u32, decoder.original_img_buffer[23]);
 
     const bit_depth: u8 = decoder.original_img_buffer[24];
+    switch (bit_depth) {
+        1, 2, 4, 8, 16 => {},
+        else => return PNGReadError.InvalidBitDepth,
+    }
     const color_type: u8 = decoder.original_img_buffer[25];
     const compression_method: u8 = decoder.original_img_buffer[26];
     const filter_method: u8 = decoder.original_img_buffer[27];
     const interlace_method: u8 = decoder.original_img_buffer[28];
+    switch (interlace_method) {
+        0 => {},
+        1 => return PNGReadError.InterlacingNotSupported,
+        else => return PNGReadError.InvalidInterlaceMethod,
+    }
 
     var sample_size: u8 = switch (color_type) {
         // match values represent color type
@@ -150,7 +159,7 @@ pub fn handleIHDR(decoder: *Decoder) !void {
         // 4: R,G,B,A
         6 => 4,
 
-        else => unreachable,
+        else => return PNGReadError.InvalidColorType,
     };
 
     decoder.IHDR = .{
