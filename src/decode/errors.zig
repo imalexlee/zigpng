@@ -10,6 +10,8 @@ pub const PNGReadError = error{
     InvalidcICPMatrixCoefficient,
     InvalidCompressionMethod,
     InvalidAnimationSequenceNumber,
+    NoImageProvided,
+    ImageInformationNotRead,
     ZlibInflateInitError,
     ZlibMemoryError,
     MissingIDAT,
