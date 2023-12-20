@@ -56,6 +56,9 @@ pub fn pngDecoder() type {
         fcTL_list: ?std.ArrayList(chunks.fcTL),
         fdAT_list: ?std.ArrayList(chunks.fdAT),
 
+        // flags
+        pixels_defined: bool = false,
+
         IHDR: chunks.IHDR = undefined,
         pHYS: ?chunks.pHYs = null,
         bKGD: ?chunks.bKGD = null,
@@ -139,10 +142,10 @@ pub fn pngDecoder() type {
         /// Cannot reuse this decoder instance after this operation
         pub fn deinit(self: *Self) void {
             self.image_data_list.deinit();
-            self.original_img_allocator.free(self.original_img_buffer);
+            if (self.file_size > 0) self.original_img_allocator.free(self.original_img_buffer);
 
             // no pixel data if image data was never found
-            if (self.image_data_start > 0) self.uncompressed_allocator.free(self.pixel_buf);
+            if (self.pixels_defined) self.uncompressed_allocator.free(self.pixel_buf);
             if (self.hIST != null) self.uncompressed_allocator.free(self.hIST.?.frequencies);
 
             if (self.tEXt_list != null) {
@@ -183,12 +186,12 @@ pub fn pngDecoder() type {
 
         /// Resets the decoder to its original state and frees memory while sill holding references to both allocators
         pub fn reset(self: *Self) void {
-            self.original_img_allocator.free(self.original_img_buffer);
+            if (self.file_size > 0) self.original_img_allocator.free(self.original_img_buffer);
             self.original_img_buffer = undefined;
-            self.image_data_list.clearAndFree();
+            //self.image_data_list.clearAndFree();
             self.file_size = undefined;
             // no pixel data if image data was never found
-            if (self.image_data_start > 0) self.uncompressed_allocator.free(self.pixel_buf);
+            if (self.pixels_defined) self.uncompressed_allocator.free(self.pixel_buf);
             if (self.hIST != null) self.uncompressed_allocator.free(self.hIST.?.frequencies);
             if (self.sPLT_list != null) {
                 for (self.sPLT_list.?.items) |sPLT| {
@@ -241,6 +244,7 @@ pub fn pngDecoder() type {
                 self.fcTL_list.?.clearAndFree();
             }
             self.pixel_buf = undefined;
+            self.pixels_defined = false;
             self.sample_size = undefined;
             self.image_data_start = 0;
 
@@ -260,7 +264,7 @@ pub fn pngDecoder() type {
             self.acTL = null;
         }
 
-        /// loads an image from a give path in the current working directory
+        /// loads an image from a give path in the current working directory and closes the file after
         pub fn loadFileFromPath(self: *Self, allocator: std.mem.Allocator, file_path: []const u8, flags: std.fs.File.OpenFlags) !void {
             const file = try std.fs.cwd().openFile(file_path, flags);
             defer file.close();
@@ -278,6 +282,7 @@ pub fn pngDecoder() type {
         }
 
         pub fn readInfo(self: *Self) !void {
+            if (self.file_size == 0) return PNGReadError.NoImageProvided;
             inline for (PNG_SIGNATURE, 0..) |value, i| {
                 if (value != self.original_img_buffer[i]) {
                     return PNGReadError.InvalidPNGSignature;
@@ -362,6 +367,10 @@ pub fn pngDecoder() type {
         }
 
         pub fn readImageData(self: *Self) !void {
+            if (self.file_size == 0) return PNGReadError.NoImageProvided;
+            // there was a file, and there wasn't a MissingIdat error yet
+            // therefore, readInfo must have not been called yet like it was supposed to
+            if (self.image_data_start == 0) return PNGReadError.ImageInformationNotRead;
             var offset: u32 = self.image_data_start;
             while (offset < self.file_size - 11) {
                 offset += try self.readImageDataChunk(offset);

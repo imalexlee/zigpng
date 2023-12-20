@@ -74,6 +74,8 @@ pub fn unFilterImageData(decoder: *Decoder) !void {
     var dest_len: c_ulong = uncompressed_buf.len;
     _ = zlib.uncompress(uncompressed_buf.ptr, &dest_len, decoder.image_data_list.items.ptr, decoder.image_data_list.items.len);
     // to handle fdat, maybe just do this but iterate over each frame height and width through fctl_list
+    // TODO: if zlib errors out, return with error
+    decoder.image_data_list.clearAndFree();
 
     var line_width: u32 = 0;
     // KEEP
@@ -114,6 +116,7 @@ pub fn unFilterImageData(decoder: *Decoder) !void {
         }
     }
     decoder.pixel_buf = pixel_list.items;
+    decoder.pixels_defined = true;
     // END INNER LOOP
 }
 
@@ -899,6 +902,5 @@ pub fn handlefdAT(decoder: *Decoder, offset: u32, data_length: u32) !void {
     const end_pos = offset + data_length;
 
     const compressed_buf = decoder.original_img_buffer[start_pos..end_pos];
-    // TODO: rename image_data_list to something general for both IDAT and fdAT
     _ = try decoder.image_data_list.appendSlice(compressed_buf);
 }
