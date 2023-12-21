@@ -7,20 +7,20 @@ const testing = std.testing;
 test "decode greyscale transparent with black background" {
     const file_path = "samples/transparent/greyscale/tbbn0g04.png";
     const pngDecoder = png_decoder.pngDecoder();
-    var image = try pngDecoder.init(helpers.zigpng_test_allocator, helpers.zigpng_test_allocator, .{
+    var image = pngDecoder.init(helpers.zigpng_test_allocator, .{
         .bKGD = true,
     });
     defer image.deinit();
 
-    try image.loadFileFromPath(helpers.zigpng_test_allocator, file_path, .{});
+    try image.loadFileFromPath(file_path, .{});
     try image.readInfo();
     try image.readImageData();
 
-    try testing.expect(image.IHDR.width == 32);
-    try testing.expect(image.IHDR.height == 32);
+    try testing.expect(image.IHDR.?.width == 32);
+    try testing.expect(image.IHDR.?.height == 32);
     try testing.expect(image.sample_size == 1);
     try testing.expect(image.pixel_buf.len == 512);
-    try testing.expect(image.IHDR.bit_depth == 4);
+    try testing.expect(image.IHDR.?.bit_depth == 4);
     try testing.expect(image.bKGD.?.greyscale.? == 0);
     try testing.expect(image.tRNS.?.grey_sample.? == 15);
     try testing.expect(image.tRNS.?.alphas == null);
@@ -32,20 +32,20 @@ test "decode greyscale transparent with black background" {
 test "decode color transparent with blue background" {
     const file_path = "samples/transparent/color/tbbn2c16.png";
     const pngDecoder = png_decoder.pngDecoder();
-    var image = try pngDecoder.init(helpers.zigpng_test_allocator, helpers.zigpng_test_allocator, .{
+    var image = pngDecoder.init(helpers.zigpng_test_allocator, .{
         .bKGD = true,
     });
     defer image.deinit();
 
-    try image.loadFileFromPath(helpers.zigpng_test_allocator, file_path, .{});
+    try image.loadFileFromPath(file_path, .{});
     try image.readInfo();
     try image.readImageData();
 
-    try testing.expect(image.IHDR.width == 32);
-    try testing.expect(image.IHDR.height == 32);
+    try testing.expect(image.IHDR.?.width == 32);
+    try testing.expect(image.IHDR.?.height == 32);
     try testing.expect(image.sample_size == 3);
     try testing.expect(image.pixel_buf.len == 6144);
-    try testing.expect(image.IHDR.bit_depth == 16);
+    try testing.expect(image.IHDR.?.bit_depth == 16);
     try testing.expect(image.bKGD.?.red.? == 0);
     try testing.expect(image.bKGD.?.green.? == 0);
     try testing.expect(image.bKGD.?.blue.? == 65535);
@@ -59,20 +59,20 @@ test "decode color transparent with blue background" {
 test "decode paletted transparent with black background" {
     const file_path = "samples/transparent/color/tbbn3p08.png";
     const pngDecoder = png_decoder.pngDecoder();
-    var image = try pngDecoder.init(helpers.zigpng_test_allocator, helpers.zigpng_test_allocator, .{
+    var image = pngDecoder.init(helpers.zigpng_test_allocator, .{
         .bKGD = true,
     });
     defer image.deinit();
 
-    try image.loadFileFromPath(helpers.zigpng_test_allocator, file_path, .{});
+    try image.loadFileFromPath(file_path, .{});
     try image.readInfo();
     try image.readImageData();
 
-    try testing.expect(image.IHDR.width == 32);
-    try testing.expect(image.IHDR.height == 32);
+    try testing.expect(image.IHDR.?.width == 32);
+    try testing.expect(image.IHDR.?.height == 32);
     try testing.expect(image.sample_size == 1);
     try testing.expect(image.pixel_buf.len == 1024);
-    try testing.expect(image.IHDR.bit_depth == 8);
+    try testing.expect(image.IHDR.?.bit_depth == 8);
     try testing.expect(image.bKGD.?.red == null);
     try testing.expect(image.bKGD.?.green == null);
     try testing.expect(image.bKGD.?.blue == null);
@@ -88,20 +88,20 @@ test "decode paletted transparent with black background" {
 test "decode color transparent with green background" {
     const file_path = "samples/transparent/color/tbgn2c16.png";
     const pngDecoder = png_decoder.pngDecoder();
-    var image = try pngDecoder.init(helpers.zigpng_test_allocator, helpers.zigpng_test_allocator, .{
+    var image = pngDecoder.init(helpers.zigpng_test_allocator, .{
         .bKGD = true,
     });
     defer image.deinit();
 
-    try image.loadFileFromPath(helpers.zigpng_test_allocator, file_path, .{});
+    try image.loadFileFromPath(file_path, .{});
     try image.readInfo();
     try image.readImageData();
 
-    try testing.expect(image.IHDR.width == 32);
-    try testing.expect(image.IHDR.height == 32);
+    try testing.expect(image.IHDR.?.width == 32);
+    try testing.expect(image.IHDR.?.height == 32);
     try testing.expect(image.sample_size == 3);
     try testing.expect(image.pixel_buf.len == 6144);
-    try testing.expect(image.IHDR.bit_depth == 16);
+    try testing.expect(image.IHDR.?.bit_depth == 16);
     try testing.expect(image.bKGD.?.red.? == 0);
     try testing.expect(image.bKGD.?.green.? == 65535);
     try testing.expect(image.bKGD.?.blue.? == 0);
@@ -115,20 +115,20 @@ test "decode color transparent with green background" {
 test "decode paletted transparent with light grey background" {
     const file_path = "samples/transparent/color/tbgn3p08.png";
     const pngDecoder = png_decoder.pngDecoder();
-    var image = try pngDecoder.init(helpers.zigpng_test_allocator, helpers.zigpng_test_allocator, .{
+    var image = pngDecoder.init(helpers.zigpng_test_allocator, .{
         .bKGD = true,
     });
     defer image.deinit();
 
-    try image.loadFileFromPath(helpers.zigpng_test_allocator, file_path, .{});
+    try image.loadFileFromPath(file_path, .{});
     try image.readInfo();
     try image.readImageData();
 
-    try testing.expect(image.IHDR.width == 32);
-    try testing.expect(image.IHDR.height == 32);
+    try testing.expect(image.IHDR.?.width == 32);
+    try testing.expect(image.IHDR.?.height == 32);
     try testing.expect(image.sample_size == 1);
     try testing.expect(image.pixel_buf.len == 1024);
-    try testing.expect(image.IHDR.bit_depth == 8);
+    try testing.expect(image.IHDR.?.bit_depth == 8);
     try testing.expect(image.bKGD.?.red == null);
     try testing.expect(image.bKGD.?.green == null);
     try testing.expect(image.bKGD.?.blue == null);
@@ -144,20 +144,20 @@ test "decode paletted transparent with light grey background" {
 test "decode color transparent with red background" {
     const file_path = "samples/transparent/color/tbrn2c08.png";
     const pngDecoder = png_decoder.pngDecoder();
-    var image = try pngDecoder.init(helpers.zigpng_test_allocator, helpers.zigpng_test_allocator, .{
+    var image = pngDecoder.init(helpers.zigpng_test_allocator, .{
         .bKGD = true,
     });
     defer image.deinit();
 
-    try image.loadFileFromPath(helpers.zigpng_test_allocator, file_path, .{});
+    try image.loadFileFromPath(file_path, .{});
     try image.readInfo();
     try image.readImageData();
 
-    try testing.expect(image.IHDR.width == 32);
-    try testing.expect(image.IHDR.height == 32);
+    try testing.expect(image.IHDR.?.width == 32);
+    try testing.expect(image.IHDR.?.height == 32);
     try testing.expect(image.sample_size == 3);
     try testing.expect(image.pixel_buf.len == 3072);
-    try testing.expect(image.IHDR.bit_depth == 8);
+    try testing.expect(image.IHDR.?.bit_depth == 8);
     try testing.expect(image.bKGD.?.red.? == 255);
     try testing.expect(image.bKGD.?.green.? == 0);
     try testing.expect(image.bKGD.?.blue.? == 0);
@@ -171,20 +171,20 @@ test "decode color transparent with red background" {
 test "decode greyscale transparent with white background" {
     const file_path = "samples/transparent/greyscale/tbwn0g16.png";
     const pngDecoder = png_decoder.pngDecoder();
-    var image = try pngDecoder.init(helpers.zigpng_test_allocator, helpers.zigpng_test_allocator, .{
+    var image = pngDecoder.init(helpers.zigpng_test_allocator, .{
         .bKGD = true,
     });
     defer image.deinit();
 
-    try image.loadFileFromPath(helpers.zigpng_test_allocator, file_path, .{});
+    try image.loadFileFromPath(file_path, .{});
     try image.readInfo();
     try image.readImageData();
 
-    try testing.expect(image.IHDR.width == 32);
-    try testing.expect(image.IHDR.height == 32);
+    try testing.expect(image.IHDR.?.width == 32);
+    try testing.expect(image.IHDR.?.height == 32);
     try testing.expect(image.sample_size == 1);
     try testing.expect(image.pixel_buf.len == 2048);
-    try testing.expect(image.IHDR.bit_depth == 16);
+    try testing.expect(image.IHDR.?.bit_depth == 16);
     try testing.expect(image.bKGD.?.greyscale.? == 65535);
     try testing.expect(image.tRNS.?.grey_sample != null);
     try testing.expect(image.tRNS.?.alphas == null);
@@ -196,20 +196,20 @@ test "decode greyscale transparent with white background" {
 test "decode paletted transparent with white background" {
     const file_path = "samples/transparent/color/tbwn3p08.png";
     const pngDecoder = png_decoder.pngDecoder();
-    var image = try pngDecoder.init(helpers.zigpng_test_allocator, helpers.zigpng_test_allocator, .{
+    var image = pngDecoder.init(helpers.zigpng_test_allocator, .{
         .bKGD = true,
     });
     defer image.deinit();
 
-    try image.loadFileFromPath(helpers.zigpng_test_allocator, file_path, .{});
+    try image.loadFileFromPath(file_path, .{});
     try image.readInfo();
     try image.readImageData();
 
-    try testing.expect(image.IHDR.width == 32);
-    try testing.expect(image.IHDR.height == 32);
+    try testing.expect(image.IHDR.?.width == 32);
+    try testing.expect(image.IHDR.?.height == 32);
     try testing.expect(image.sample_size == 1);
     try testing.expect(image.pixel_buf.len == 1024);
-    try testing.expect(image.IHDR.bit_depth == 8);
+    try testing.expect(image.IHDR.?.bit_depth == 8);
     try testing.expect(image.bKGD.?.red == null);
     try testing.expect(image.bKGD.?.green == null);
     try testing.expect(image.bKGD.?.blue == null);
@@ -238,20 +238,20 @@ test "decode paletted transparent with white background" {
 test "decode paletted transparent with yellow background" {
     const file_path = "samples/transparent/color/tbyn3p08.png";
     const pngDecoder = png_decoder.pngDecoder();
-    var image = try pngDecoder.init(helpers.zigpng_test_allocator, helpers.zigpng_test_allocator, .{
+    var image = pngDecoder.init(helpers.zigpng_test_allocator, .{
         .bKGD = true,
     });
     defer image.deinit();
 
-    try image.loadFileFromPath(helpers.zigpng_test_allocator, file_path, .{});
+    try image.loadFileFromPath(file_path, .{});
     try image.readInfo();
     try image.readImageData();
 
-    try testing.expect(image.IHDR.width == 32);
-    try testing.expect(image.IHDR.height == 32);
+    try testing.expect(image.IHDR.?.width == 32);
+    try testing.expect(image.IHDR.?.height == 32);
     try testing.expect(image.sample_size == 1);
     try testing.expect(image.pixel_buf.len == 1024);
-    try testing.expect(image.IHDR.bit_depth == 8);
+    try testing.expect(image.IHDR.?.bit_depth == 8);
     try testing.expect(image.bKGD.?.red == null);
     try testing.expect(image.bKGD.?.green == null);
     try testing.expect(image.bKGD.?.blue == null);
@@ -280,18 +280,18 @@ test "decode paletted transparent with yellow background" {
 test "decode paletted transparent with 3 different transparency indices" {
     const file_path = "samples/transparent/color/tm3n3p02.png";
     const pngDecoder = png_decoder.pngDecoder();
-    var image = try pngDecoder.init(helpers.zigpng_test_allocator, helpers.zigpng_test_allocator, .{});
+    var image = pngDecoder.init(helpers.zigpng_test_allocator, .{});
     defer image.deinit();
 
-    try image.loadFileFromPath(helpers.zigpng_test_allocator, file_path, .{});
+    try image.loadFileFromPath(file_path, .{});
     try image.readInfo();
     try image.readImageData();
 
-    try testing.expect(image.IHDR.width == 32);
-    try testing.expect(image.IHDR.height == 32);
+    try testing.expect(image.IHDR.?.width == 32);
+    try testing.expect(image.IHDR.?.height == 32);
     try testing.expect(image.sample_size == 1);
     try testing.expect(image.pixel_buf.len == 256);
-    try testing.expect(image.IHDR.bit_depth == 2);
+    try testing.expect(image.IHDR.?.bit_depth == 2);
 
     try testing.expect(image.tRNS.?.grey_sample == null);
     try testing.expect(image.tRNS.?.alphas.?.len == 3);

@@ -35,37 +35,32 @@ const DecoderConfig = struct {
 pub fn pngDecoder() type {
     return struct {
         const Self = @This();
-        original_img_buffer: []u8 = undefined,
-        original_img_allocator: std.mem.Allocator = undefined,
+        decode_allocator: std.mem.Allocator = undefined,
+
+        original_img_buffer: []u8 = &.{},
         file_size: u64 = 0,
 
         image_data_start: u32 = 0,
         curr_sequence_num: u32 = 0,
         image_data_list: std.ArrayList(u8) = undefined,
-        idat_allocator: std.mem.Allocator = undefined,
 
-        pixel_buf: []u8 = undefined,
-        uncompressed_allocator: std.mem.Allocator = undefined,
+        pixel_buf: []u8 = &.{},
+        sample_size: u8 = 0,
 
-        sample_size: u8 = undefined,
+        tEXt_list: ?std.ArrayList(chunks.tEXt) = null,
+        zTXt_list: ?std.ArrayList(chunks.zTXt) = null,
+        iTXt_list: ?std.ArrayList(chunks.iTXt) = null,
+        sPLT_list: ?std.ArrayList(chunks.sPLT) = null,
+        fcTL_list: ?std.ArrayList(chunks.fcTL) = null,
+        fdAT_list: ?std.ArrayList(chunks.fdAT) = null,
 
-        tEXt_list: ?std.ArrayList(chunks.tEXt),
-        zTXt_list: ?std.ArrayList(chunks.zTXt),
-        iTXt_list: ?std.ArrayList(chunks.iTXt),
-        sPLT_list: ?std.ArrayList(chunks.sPLT),
-        fcTL_list: ?std.ArrayList(chunks.fcTL),
-        fdAT_list: ?std.ArrayList(chunks.fdAT),
-
-        // flags
-        pixels_defined: bool = false,
-
-        IHDR: chunks.IHDR = undefined,
+        IHDR: ?chunks.IHDR = null,
+        PLTE: ?chunks.PLTE = null,
         pHYS: ?chunks.pHYs = null,
         bKGD: ?chunks.bKGD = null,
         sRGB: ?chunks.sRGB = null,
         sBIT: ?chunks.sBIT = null,
         gAMA: ?chunks.gAMA = null,
-        PLTE: ?chunks.PLTE = null,
         tRNS: ?chunks.tRNS = null,
         cHRM: ?chunks.cHRM = null,
         hIST: ?chunks.hIST = null,
@@ -81,47 +76,47 @@ pub fn pngDecoder() type {
 
         /// idat_allocator used by ArrayList to store a consecutive u8 slice made from all appended, uncompressed, IDAT chunk data
         ///
-        /// uncompressed_allocator used by zlib to store just the decompressed IDAT chunk data with filter byte intact at scanline start
-        pub fn init(idatAllocator: std.mem.Allocator, uncompressedAllocator: std.mem.Allocator, config: DecoderConfig) !Self {
+        /// decode_allocator used by zlib to store just the decompressed IDAT chunk data with filter byte intact at scanline start
+        pub fn init(allocator: std.mem.Allocator, config: DecoderConfig) Self {
             var image_data_list = std.ArrayList(u8).init(
-                idatAllocator,
+                allocator,
             );
             var tEXt_list: ?std.ArrayList(chunks.tEXt) = null;
             if (config.tEXt == true) {
                 tEXt_list = std.ArrayList(chunks.tEXt).init(
-                    uncompressedAllocator,
+                    allocator,
                 );
             }
             var zTXt_list: ?std.ArrayList(chunks.zTXt) = null;
             if (config.zTXt == true) {
                 zTXt_list = std.ArrayList(chunks.zTXt).init(
-                    uncompressedAllocator,
+                    allocator,
                 );
             }
             var iTXt_list: ?std.ArrayList(chunks.iTXt) = null;
             if (config.iTXt == true) {
                 iTXt_list = std.ArrayList(chunks.iTXt).init(
-                    uncompressedAllocator,
+                    allocator,
                 );
             }
             var sPLT_list: ?std.ArrayList(chunks.sPLT) = null;
             if (config.sPLT == true) {
                 sPLT_list = std.ArrayList(chunks.sPLT).init(
-                    uncompressedAllocator,
+                    allocator,
                 );
             }
 
             var fcTL_list: ?std.ArrayList(chunks.fcTL) = null;
             if (config.animation) {
                 fcTL_list = std.ArrayList(chunks.fcTL).init(
-                    uncompressedAllocator,
+                    allocator,
                 );
             }
 
             var fdAT_list: ?std.ArrayList(chunks.fdAT) = null;
             if (config.animation) {
                 fdAT_list = std.ArrayList(chunks.fdAT).init(
-                    uncompressedAllocator,
+                    allocator,
                 );
             }
 
@@ -133,8 +128,7 @@ pub fn pngDecoder() type {
                 .sPLT_list = sPLT_list,
                 .fcTL_list = fcTL_list,
                 .fdAT_list = fdAT_list,
-                .idat_allocator = idatAllocator,
-                .uncompressed_allocator = uncompressedAllocator,
+                .decode_allocator = allocator,
                 .config = config,
             };
         }
@@ -142,40 +136,39 @@ pub fn pngDecoder() type {
         /// Cannot reuse this decoder instance after this operation
         pub fn deinit(self: *Self) void {
             self.image_data_list.deinit();
-            if (self.file_size > 0) self.original_img_allocator.free(self.original_img_buffer);
+            if (self.file_size > 0) self.decode_allocator.free(self.original_img_buffer);
 
-            // no pixel data if image data was never found
-            if (self.pixels_defined) self.uncompressed_allocator.free(self.pixel_buf);
-            if (self.hIST != null) self.uncompressed_allocator.free(self.hIST.?.frequencies);
+            if (self.pixel_buf.len > 0) self.decode_allocator.free(self.pixel_buf);
+            if (self.hIST != null) self.decode_allocator.free(self.hIST.?.frequencies);
 
             if (self.tEXt_list != null) {
                 self.tEXt_list.?.clearAndFree();
             }
             if (self.zTXt_list != null) {
                 for (self.zTXt_list.?.items) |zTXt| {
-                    self.uncompressed_allocator.free(zTXt.text);
+                    self.decode_allocator.free(zTXt.text);
                 }
                 self.zTXt_list.?.clearAndFree();
             }
             if (self.iTXt_list != null) {
                 for (self.iTXt_list.?.items) |iTXt| {
                     if (iTXt.compression_flag == 1) {
-                        self.uncompressed_allocator.free(iTXt.text);
+                        self.decode_allocator.free(iTXt.text);
                     }
                 }
                 self.iTXt_list.?.clearAndFree();
             }
             if (self.tRNS != null) {
-                if (self.tRNS.?.alphas != null) self.uncompressed_allocator.free(self.tRNS.?.alphas.?);
+                if (self.tRNS.?.alphas != null) self.decode_allocator.free(self.tRNS.?.alphas.?);
             }
             if (self.sPLT_list != null) {
                 for (self.sPLT_list.?.items) |sPLT| {
-                    self.uncompressed_allocator.free(sPLT.palette);
+                    self.decode_allocator.free(sPLT.palette);
                 }
                 self.sPLT_list.?.clearAndFree();
             }
             if (self.iCCP != null) {
-                self.uncompressed_allocator.free(self.iCCP.?.profile);
+                self.decode_allocator.free(self.iCCP.?.profile);
             }
 
             if (self.fcTL_list != null) {
@@ -186,16 +179,15 @@ pub fn pngDecoder() type {
 
         /// Resets the decoder to its original state and frees memory while sill holding references to both allocators
         pub fn reset(self: *Self) void {
-            if (self.file_size > 0) self.original_img_allocator.free(self.original_img_buffer);
+            if (self.file_size > 0) self.decode_allocator.free(self.original_img_buffer);
             self.original_img_buffer = undefined;
-            //self.image_data_list.clearAndFree();
             self.file_size = undefined;
-            // no pixel data if image data was never found
-            if (self.pixels_defined) self.uncompressed_allocator.free(self.pixel_buf);
-            if (self.hIST != null) self.uncompressed_allocator.free(self.hIST.?.frequencies);
+
+            if (self.pixel_buf.len > 0) self.decode_allocator.free(self.pixel_buf);
+            if (self.hIST != null) self.decode_allocator.free(self.hIST.?.frequencies);
             if (self.sPLT_list != null) {
                 for (self.sPLT_list.?.items) |sPLT| {
-                    self.uncompressed_allocator.free(sPLT.palette);
+                    self.decode_allocator.free(sPLT.palette);
                 }
                 self.sPLT_list.?.clearAndFree();
             }
@@ -205,7 +197,7 @@ pub fn pngDecoder() type {
             }
             if (self.zTXt_list != null) {
                 for (self.zTXt_list.?.items) |zTXt| {
-                    self.uncompressed_allocator.free(zTXt.text);
+                    self.decode_allocator.free(zTXt.text);
                 }
                 self.zTXt_list.?.clearAndFree();
                 self.zTXt_list = null;
@@ -213,7 +205,7 @@ pub fn pngDecoder() type {
             if (self.iTXt_list != null) {
                 for (self.iTXt_list.?.items) |iTXt| {
                     if (iTXt.compression_flag == 1) {
-                        self.uncompressed_allocator.free(iTXt.text);
+                        self.decode_allocator.free(iTXt.text);
                     }
                 }
                 self.iTXt_list.?.clearAndFree();
@@ -221,20 +213,20 @@ pub fn pngDecoder() type {
             }
             if (self.sPLT_list != null) {
                 for (self.sPLT_list.?.items) |sPLT| {
-                    self.uncompressed_allocator.free(sPLT.palette);
+                    self.decode_allocator.free(sPLT.palette);
                 }
                 self.sPLT_list.?.clearAndFree();
                 self.sPLT_list = null;
             }
             if (self.tRNS != null) {
                 if (self.tRNS.?.alphas != null) {
-                    self.uncompressed_allocator.free(self.tRNS.?.alphas.?);
+                    self.decode_allocator.free(self.tRNS.?.alphas.?);
                     self.tRNS = null;
                 }
             }
 
             if (self.iCCP != null) {
-                self.uncompressed_allocator.free(self.iCCP.?.profile);
+                self.decode_allocator.free(self.iCCP.?.profile);
                 self.iCCP = null;
             }
             if (self.fcTL_list != null) {
@@ -244,12 +236,10 @@ pub fn pngDecoder() type {
                 self.fcTL_list.?.clearAndFree();
             }
             self.pixel_buf = undefined;
-            self.pixels_defined = false;
             self.sample_size = undefined;
             self.image_data_start = 0;
 
-            self.IHDR = undefined;
-
+            self.IHDR = null;
             self.pHYS = null;
             self.bKGD = null;
             self.sRGB = null;
@@ -265,19 +255,18 @@ pub fn pngDecoder() type {
         }
 
         /// loads an image from a give path in the current working directory and closes the file after
-        pub fn loadFileFromPath(self: *Self, allocator: std.mem.Allocator, file_path: []const u8, flags: std.fs.File.OpenFlags) !void {
+        pub fn loadFileFromPath(self: *Self, file_path: []const u8, flags: std.fs.File.OpenFlags) !void {
             const file = try std.fs.cwd().openFile(file_path, flags);
             defer file.close();
             self.file_size = try file.getEndPos();
-            self.original_img_buffer = try allocator.alloc(u8, self.file_size);
+            self.original_img_buffer = try self.decode_allocator.alloc(u8, self.file_size);
             _ = try file.read(self.original_img_buffer);
-            self.original_img_allocator = allocator;
         }
 
         /// safe to close file after function executes
-        pub fn loadFile(self: *Self, allocator: std.mem.Allocator, file: std.fs.File) !void {
+        pub fn loadFile(self: *Self, file: std.fs.File) !void {
             self.file_size = try file.getEndPos();
-            self.original_img_buffer = try allocator.alloc(u8, self.file_size);
+            self.original_img_buffer = try self.decode_allocator.alloc(u8, self.file_size);
             _ = try file.read(self.original_img_buffer);
         }
 
