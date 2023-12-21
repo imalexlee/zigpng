@@ -7,7 +7,7 @@ const testing = std.testing;
 
 test "attempting to read image information when no image was loaded in" {
     const pngDecoder = png_decoder.pngDecoder();
-    var image = try pngDecoder.init(helpers.zigpng_test_allocator, helpers.zigpng_test_allocator, .{});
+    var image = pngDecoder.init(helpers.zigpng_test_allocator, .{});
     defer image.deinit();
 
     var result = image.readInfo();
@@ -20,7 +20,7 @@ test "attempting to read image information when no image was loaded in" {
 
 test "attempting to read image data when no image was loaded in" {
     const pngDecoder = png_decoder.pngDecoder();
-    var image = try pngDecoder.init(helpers.zigpng_test_allocator, helpers.zigpng_test_allocator, .{});
+    var image = pngDecoder.init(helpers.zigpng_test_allocator, .{});
     defer image.deinit();
 
     var result = image.readImageData();
@@ -34,10 +34,10 @@ test "attempting to read image data when no image was loaded in" {
 test "call readImageData before readInfo" {
     const file_path = "samples/filtering/color/f00n2c08.png";
     const pngDecoder = png_decoder.pngDecoder();
-    var image = try pngDecoder.init(helpers.zigpng_test_allocator, helpers.zigpng_test_allocator, .{});
+    var image = pngDecoder.init(helpers.zigpng_test_allocator, .{});
     defer image.deinit();
 
-    try image.loadFileFromPath(helpers.zigpng_test_allocator, file_path, .{});
+    try image.loadFileFromPath(file_path, .{});
 
     var result = image.readImageData();
     try image.readInfo();
@@ -50,7 +50,7 @@ test "call readImageData before readInfo" {
 
 test "check that only calling reset frees all memory and no seg faults" {
     const pngDecoder = png_decoder.pngDecoder();
-    var image = try pngDecoder.init(helpers.zigpng_test_allocator, helpers.zigpng_test_allocator, .{
+    var image = pngDecoder.init(helpers.zigpng_test_allocator, .{
         .pHYS = true,
         .bKGD = true,
         .sRGB = true,
@@ -75,7 +75,7 @@ test "check that only calling reset frees all memory and no seg faults" {
 
 test "check that only calling deinit frees all memory and no seg faults" {
     const pngDecoder = png_decoder.pngDecoder();
-    var image = try pngDecoder.init(helpers.zigpng_test_allocator, helpers.zigpng_test_allocator, .{
+    var image = pngDecoder.init(helpers.zigpng_test_allocator, .{
         .pHYS = true,
         .bKGD = true,
         .sRGB = true,

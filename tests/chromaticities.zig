@@ -7,16 +7,16 @@ const testing = std.testing;
 test "decode color image with chromaticities w:0.3127,0.3290 r:0.64,0.33 g:0.30,0.60 b:0.15,0.06" {
     const file_path = "samples/chromaticities/ccwn2c08.png";
     const pngDecoder = png_decoder.pngDecoder();
-    var image = try pngDecoder.init(helpers.zigpng_test_allocator, helpers.zigpng_test_allocator, .{
+    var image = pngDecoder.init(helpers.zigpng_test_allocator, .{
         .cHRM = true,
     });
     defer image.deinit();
 
-    try image.loadFileFromPath(helpers.zigpng_test_allocator, file_path, .{});
+    try image.loadFileFromPath(file_path, .{});
     try image.readInfo();
     try image.readImageData();
-    try testing.expect(image.IHDR.width == 32);
-    try testing.expect(image.IHDR.height == 32);
+    try testing.expect(image.IHDR.?.width == 32);
+    try testing.expect(image.IHDR.?.height == 32);
     try testing.expect(image.sample_size == 3);
     try testing.expect(image.pixel_buf.len == 3072);
 
@@ -33,16 +33,16 @@ test "decode color image with chromaticities w:0.3127,0.3290 r:0.64,0.33 g:0.30,
 test "decode paletted image with chromaticities w:0.3127,0.3290 r:0.64,0.33 g:0.30,0.60 b:0.15,0.06" {
     const file_path = "samples/chromaticities/ccwn3p08.png";
     const pngDecoder = png_decoder.pngDecoder();
-    var image = try pngDecoder.init(helpers.zigpng_test_allocator, helpers.zigpng_test_allocator, .{
+    var image = pngDecoder.init(helpers.zigpng_test_allocator, .{
         .cHRM = true,
     });
     defer image.deinit();
 
-    try image.loadFileFromPath(helpers.zigpng_test_allocator, file_path, .{});
+    try image.loadFileFromPath(file_path, .{});
     try image.readInfo();
     try image.readImageData();
-    try testing.expect(image.IHDR.width == 32);
-    try testing.expect(image.IHDR.height == 32);
+    try testing.expect(image.IHDR.?.width == 32);
+    try testing.expect(image.IHDR.?.height == 32);
     try testing.expect(image.sample_size == 1);
     try testing.expect(image.pixel_buf.len == 1024);
 

@@ -27,7 +27,7 @@ pub fn handleCRC(decoder: *Decoder, crc: *c_ulong, type_offset: u32, data_length
 
 // TODO: Rename to something general to represent IDAT and fdAT
 pub fn unFilterImageData(decoder: *Decoder) !void {
-    // TODO: could be shorter for frames < IHDR.width
+    // TODO: could be shorter for frames <.IHDR.?.width
     // animation is set to true in config if fctl list is initialized
     var bits_per_line: u32 = 0;
     var pixel_len: u32 = 0;
@@ -36,8 +36,8 @@ pub fn unFilterImageData(decoder: *Decoder) !void {
     if (decoder.fcTL_list != null) {
         // iterate through all the frame information chunks and sum up the pixel length required for all frames
         for (decoder.fcTL_list.?.items) |fcTL| {
-            bits_per_line = fcTL.width * decoder.sample_size * decoder.IHDR.bit_depth;
-            pixel_len += switch (decoder.IHDR.bit_depth) {
+            bits_per_line = fcTL.width * decoder.sample_size * decoder.IHDR.?.bit_depth;
+            pixel_len += switch (decoder.IHDR.?.bit_depth) {
                 8 => decoder.sample_size * (fcTL.height * fcTL.width),
                 16 => decoder.sample_size * 2 * (fcTL.height * fcTL.width),
                 else => if (bits_per_line % 8 == 0) bits_per_line / 8 * fcTL.height else (bits_per_line / 8 + 1) * fcTL.height,
@@ -45,17 +45,17 @@ pub fn unFilterImageData(decoder: *Decoder) !void {
             filter_bytes_count += fcTL.height;
         }
     } else {
-        bits_per_line = decoder.IHDR.width * decoder.sample_size * decoder.IHDR.bit_depth;
+        bits_per_line = decoder.IHDR.?.width * decoder.sample_size * decoder.IHDR.?.bit_depth;
         // length of BYTES needed to store all pixel data w/o filter byte
-        // TODO: could be shorter for frames < IHDR.width and/or < IHDR.height
+        // TODO: could be shorter for frames <.IHDR.?.width and/or < IHDR.height
         // need a way to total the pixel len and loop over each frame
         // calculates pixel length for the single idat frame
-        pixel_len = switch (decoder.IHDR.bit_depth) {
-            8 => decoder.sample_size * (decoder.IHDR.height * decoder.IHDR.width),
-            16 => decoder.sample_size * 2 * (decoder.IHDR.height * decoder.IHDR.width),
-            else => if (bits_per_line % 8 == 0) bits_per_line / 8 * decoder.IHDR.height else (bits_per_line / 8 + 1) * decoder.IHDR.height,
+        pixel_len = switch (decoder.IHDR.?.bit_depth) {
+            8 => decoder.sample_size * (decoder.IHDR.?.height * decoder.IHDR.?.width),
+            16 => decoder.sample_size * 2 * (decoder.IHDR.?.height * decoder.IHDR.?.width),
+            else => if (bits_per_line % 8 == 0) bits_per_line / 8 * decoder.IHDR.?.height else (bits_per_line / 8 + 1) * decoder.IHDR.?.height,
         };
-        filter_bytes_count = decoder.IHDR.height;
+        filter_bytes_count = decoder.IHDR.?.height;
     }
 
     // TODO: loop through all fctl frames to generate accurate uncompressed_len. this only accounts for first IDAT
@@ -64,11 +64,11 @@ pub fn unFilterImageData(decoder: *Decoder) !void {
     const uncompressed_len = pixel_len + filter_bytes_count;
 
     //KEEP BOTH
-    const uncompressed_buf = try decoder.uncompressed_allocator.alloc(u8, uncompressed_len);
-    defer decoder.uncompressed_allocator.free(uncompressed_buf);
+    const uncompressed_buf = try decoder.decode_allocator.alloc(u8, uncompressed_len);
+    defer decoder.decode_allocator.free(uncompressed_buf);
 
     // KEEP
-    var pixel_list = try std.ArrayList(u8).initCapacity(decoder.uncompressed_allocator, pixel_len);
+    var pixel_list = try std.ArrayList(u8).initCapacity(decoder.decode_allocator, pixel_len);
 
     //KEEP BOTH
     var dest_len: c_ulong = uncompressed_buf.len;
@@ -82,7 +82,7 @@ pub fn unFilterImageData(decoder: *Decoder) !void {
     //
     if (decoder.fcTL_list != null) {
         for (decoder.fcTL_list.?.items) |fcTL| {
-            bits_per_line = fcTL.width * decoder.sample_size * decoder.IHDR.bit_depth;
+            bits_per_line = fcTL.width * decoder.sample_size * decoder.IHDR.?.bit_depth;
             line_width = if (bits_per_line % 8 == 0) bits_per_line / 8 + 1 else (bits_per_line / 8 + 1) + 1;
             for (0..fcTL.height) |i| {
                 switch (uncompressed_buf[i * line_width]) {
@@ -100,9 +100,9 @@ pub fn unFilterImageData(decoder: *Decoder) !void {
     } else {
         line_width = if (bits_per_line % 8 == 0) bits_per_line / 8 + 1 else (bits_per_line / 8 + 1) + 1;
 
-        // TODO: do this logic but instead of going through IHDR.height, go through the current frames height
+        // TODO: do this logic but instead of going through.IHDR.?.height, go through the current frames height
         // wrap this for loop with outer loop that iterates through number of frames
-        for (0..decoder.IHDR.height) |i| {
+        for (0..decoder.IHDR.?.height) |i| {
             switch (uncompressed_buf[i * line_width]) {
                 1 => unfliter.unFilterSub(uncompressed_buf, i, line_width, decoder.sample_size),
                 2 => unfliter.unFilterUp(uncompressed_buf, i, line_width, decoder.sample_size),
@@ -116,7 +116,7 @@ pub fn unFilterImageData(decoder: *Decoder) !void {
         }
     }
     decoder.pixel_buf = pixel_list.items;
-    decoder.pixels_defined = true;
+    //decoder.pixels_defined = true;
     // END INNER LOOP
 }
 
@@ -202,7 +202,7 @@ pub fn handletRNS(decoder: *Decoder, offset: u32, data_length: u32) !void {
     var blue_sample: ?u16 = null;
     var alphas: ?[]u8 = null;
 
-    switch (decoder.IHDR.color_type) {
+    switch (decoder.IHDR.?.color_type) {
         0 => {
             grey_sample =
                 @as(u16, decoder.original_img_buffer[offset]) << 8 |
@@ -221,7 +221,7 @@ pub fn handletRNS(decoder: *Decoder, offset: u32, data_length: u32) !void {
         },
 
         3 => {
-            alphas = try decoder.uncompressed_allocator.alloc(u8, data_length);
+            alphas = try decoder.decode_allocator.alloc(u8, data_length);
             for (0..data_length) |i| {
                 alphas.?[i] = decoder.original_img_buffer[offset + i];
             }
@@ -263,7 +263,7 @@ pub fn handlezTXt(decoder: *Decoder, offset: u32, data_length: u32) !void {
 
     // check out https://www.zlib.net/zlib_how.html
     const chunk: c_uint = 1024;
-    var temp_out_list = std.ArrayList(u8).init(decoder.uncompressed_allocator);
+    var temp_out_list = std.ArrayList(u8).init(decoder.decode_allocator);
     var temp_out_buf: [chunk]u8 = undefined;
     var zlib_ret: c_int = undefined;
     var decompressed_count: c_uint = undefined;
@@ -363,7 +363,7 @@ pub fn handleiTXt(decoder: *Decoder, offset: u32, data_length: u32) !void {
     }
 
     const chunk: c_uint = 1024;
-    var temp_out_list = std.ArrayList(u8).init(decoder.uncompressed_allocator);
+    var temp_out_list = std.ArrayList(u8).init(decoder.decode_allocator);
     var temp_out_buf: [chunk]u8 = undefined;
     var decompressed_count: c_uint = undefined;
     var zlib_ret: c_int = undefined;
@@ -422,7 +422,7 @@ pub fn handlebKGD(decoder: *Decoder, offset: u32) void {
     var blue: ?u16 = null;
     var palette_index: ?u8 = null;
 
-    switch (decoder.IHDR.color_type) {
+    switch (decoder.IHDR.?.color_type) {
         0, 4 => {
             greyscale =
                 @as(u16, decoder.original_img_buffer[offset]) << 8 |
@@ -464,7 +464,7 @@ pub fn handlehIST(decoder: *Decoder, offset: u32, data_length: u32) !void {
     } else {
         return PNGReadError.hISTNotValidU16Slice;
     }
-    var frequencies_slice = try decoder.uncompressed_allocator.alloc(u16, hist_len);
+    var frequencies_slice = try decoder.decode_allocator.alloc(u16, hist_len);
 
     for (0..hist_len) |i| {
         var frequency: u16 =
@@ -513,7 +513,7 @@ pub fn handlesPLT(decoder: *Decoder, offset: u32, data_length: u32) !void {
 
     // # of palette structs to allocate
     const palette_size = if (sample_depth == 8) palette_length_bytes / 6 else palette_length_bytes / 10;
-    var palette_slice = try decoder.uncompressed_allocator.alloc(chunks.splt_palette, palette_size);
+    var palette_slice = try decoder.decode_allocator.alloc(chunks.splt_palette, palette_size);
 
     var i: u32 = 0;
     var byte_offset: u32 = 0;
@@ -670,7 +670,7 @@ pub fn handleiCCP(decoder: *Decoder, offset: u32, data_length: u32) !void {
 
     const profile_start = profile_name_end_abs + 2;
     const chunk: c_uint = 10_000;
-    var temp_out_list = std.ArrayList(u8).init(decoder.uncompressed_allocator);
+    var temp_out_list = std.ArrayList(u8).init(decoder.decode_allocator);
     var temp_out_buf: [chunk]u8 = undefined;
     var zlib_ret: c_int = undefined;
     var decompressed_count: c_uint = undefined;
@@ -729,7 +729,7 @@ pub fn handlesBIT(decoder: *Decoder, offset: u32) void {
     var sig_blue_bits_t6: ?u8 = null;
     var sig_alpha_bits_t6: ?u8 = null;
 
-    switch (decoder.IHDR.color_type) {
+    switch (decoder.IHDR.?.color_type) {
         0 => sig_grey_bits_t0 = decoder.original_img_buffer[offset],
         2, 3 => {
             sig_red_bits_t23 = decoder.original_img_buffer[offset];
