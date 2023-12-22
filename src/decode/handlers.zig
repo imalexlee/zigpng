@@ -10,7 +10,6 @@ const PNGReadError = errors.PNGReadError;
 
 // NON CHUNKS
 
-/// In PNG spec, crc is derived from the bytes present in the chunk type and chunk data
 pub fn handleCRC(decoder: *Decoder, crc: *c_ulong, type_offset: u32, data_length: u32) PNGReadError!void {
     var end_pos = type_offset + data_length + 4;
     const buffer = decoder.original_img_buffer[type_offset..end_pos];
@@ -25,14 +24,12 @@ pub fn handleCRC(decoder: *Decoder, crc: *c_ulong, type_offset: u32, data_length
     }
 }
 
-// TODO: Rename to something general to represent IDAT and fdAT
 pub fn unFilterImageData(decoder: *Decoder) !void {
-    // TODO: could be shorter for frames <.IHDR.?.width
-    // animation is set to true in config if fctl list is initialized
     var bits_per_line: u32 = 0;
     var pixel_len: u32 = 0;
     // amount of total filter bytes present in entire image
     var filter_bytes_count: u32 = 0;
+
     if (decoder.fcTL_list != null) {
         // iterate through all the frame information chunks and sum up the pixel length required for all frames
         for (decoder.fcTL_list.?.items) |fcTL| {
@@ -46,10 +43,6 @@ pub fn unFilterImageData(decoder: *Decoder) !void {
         }
     } else {
         bits_per_line = decoder.IHDR.?.width * decoder.sample_size * decoder.IHDR.?.bit_depth;
-        // length of BYTES needed to store all pixel data w/o filter byte
-        // TODO: could be shorter for frames <.IHDR.?.width and/or < IHDR.height
-        // need a way to total the pixel len and loop over each frame
-        // calculates pixel length for the single idat frame
         pixel_len = switch (decoder.IHDR.?.bit_depth) {
             8 => decoder.sample_size * (decoder.IHDR.?.height * decoder.IHDR.?.width),
             16 => decoder.sample_size * 2 * (decoder.IHDR.?.height * decoder.IHDR.?.width),
@@ -58,57 +51,64 @@ pub fn unFilterImageData(decoder: *Decoder) !void {
         filter_bytes_count = decoder.IHDR.?.height;
     }
 
-    // TODO: loop through all fctl frames to generate accurate uncompressed_len. this only accounts for first IDAT
-    // also keep a running total of all heights to add as the filter bytes
     // total uncompressed length is all of the pixels + total amount of filter bytes at the beginning of each scanline
     const uncompressed_len = pixel_len + filter_bytes_count;
 
-    //KEEP BOTH
     const uncompressed_buf = try decoder.decode_allocator.alloc(u8, uncompressed_len);
     defer decoder.decode_allocator.free(uncompressed_buf);
 
-    // KEEP
     var pixel_list = try std.ArrayList(u8).initCapacity(decoder.decode_allocator, pixel_len);
 
-    //KEEP BOTH
     var dest_len: c_ulong = uncompressed_buf.len;
-    _ = zlib.uncompress(uncompressed_buf.ptr, &dest_len, decoder.image_data_list.items.ptr, decoder.image_data_list.items.len);
-    // to handle fdat, maybe just do this but iterate over each frame height and width through fctl_list
-    // TODO: if zlib errors out, return with error
+    var zlib_ret = zlib.uncompress(uncompressed_buf.ptr, &dest_len, decoder.image_data_list.items.ptr, decoder.image_data_list.items.len);
+    switch (zlib_ret) {
+        zlib.Z_OK => {},
+        zlib.Z_MEM_ERROR => return PNGReadError.ZlibMemoryError,
+        zlib.Z_DATA_ERROR => return PNGReadError.ZlibDataError,
+        else => return PNGReadError.ZlibUncompressError,
+    }
     decoder.image_data_list.clearAndFree();
 
     var line_width: u32 = 0;
-    // KEEP
-    //
+
     if (decoder.fcTL_list != null) {
+        // tracks offset for incrementing frames
+        var frame_offset: u64 = 0;
         for (decoder.fcTL_list.?.items) |fcTL| {
             bits_per_line = fcTL.width * decoder.sample_size * decoder.IHDR.?.bit_depth;
             line_width = if (bits_per_line % 8 == 0) bits_per_line / 8 + 1 else (bits_per_line / 8 + 1) + 1;
             for (0..fcTL.height) |i| {
-                switch (uncompressed_buf[i * line_width]) {
+                switch (uncompressed_buf[i * line_width + frame_offset]) {
+                    0 => {},
                     1 => unfliter.unFilterSub(uncompressed_buf, i, line_width, decoder.sample_size),
                     2 => unfliter.unFilterUp(uncompressed_buf, i, line_width, decoder.sample_size),
                     3 => unfliter.unFilterAverage(uncompressed_buf, i, line_width, decoder.sample_size),
                     4 => unfliter.unFilterPaeth(uncompressed_buf, i, line_width, decoder.sample_size),
-                    else => {},
+                    else => {
+                        pixel_list.deinit();
+                        return PNGReadError.InvalidFilterType;
+                    },
                 }
                 const start_pos = i * line_width + 1;
                 const end_pos = start_pos + line_width - 1;
                 try pixel_list.appendSlice(uncompressed_buf[start_pos..end_pos]);
             }
+            frame_offset += line_width * fcTL.height;
         }
     } else {
         line_width = if (bits_per_line % 8 == 0) bits_per_line / 8 + 1 else (bits_per_line / 8 + 1) + 1;
 
-        // TODO: do this logic but instead of going through.IHDR.?.height, go through the current frames height
-        // wrap this for loop with outer loop that iterates through number of frames
         for (0..decoder.IHDR.?.height) |i| {
             switch (uncompressed_buf[i * line_width]) {
+                0 => {},
                 1 => unfliter.unFilterSub(uncompressed_buf, i, line_width, decoder.sample_size),
                 2 => unfliter.unFilterUp(uncompressed_buf, i, line_width, decoder.sample_size),
                 3 => unfliter.unFilterAverage(uncompressed_buf, i, line_width, decoder.sample_size),
                 4 => unfliter.unFilterPaeth(uncompressed_buf, i, line_width, decoder.sample_size),
-                else => {},
+                else => {
+                    pixel_list.deinit();
+                    return PNGReadError.InvalidFilterType;
+                },
             }
             const start_pos = i * line_width + 1;
             const end_pos = start_pos + line_width - 1;
@@ -116,8 +116,6 @@ pub fn unFilterImageData(decoder: *Decoder) !void {
         }
     }
     decoder.pixel_buf = pixel_list.items;
-    //decoder.pixels_defined = true;
-    // END INNER LOOP
 }
 
 // CRITICAL CHUNKS

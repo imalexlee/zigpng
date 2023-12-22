@@ -68,7 +68,7 @@ test "check that only calling reset frees all memory and no seg faults" {
         .cICP = true,
         .mDCv = true,
         .cLLi = true,
-        .animation = true,
+        //        .animation = true,
     });
     image.reset();
 }
@@ -93,7 +93,7 @@ test "check that only calling deinit frees all memory and no seg faults" {
         .cICP = true,
         .mDCv = true,
         .cLLi = true,
-        .animation = true,
+        //        .animation = true,
     });
     image.deinit();
 }

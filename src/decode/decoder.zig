@@ -29,7 +29,7 @@ const DecoderConfig = struct {
     cICP: bool = false,
     mDCv: bool = false,
     cLLi: bool = false,
-    animation: bool = false,
+    //    animation: bool = false,
 };
 
 pub fn pngDecoder() type {
@@ -106,19 +106,19 @@ pub fn pngDecoder() type {
                 );
             }
 
-            var fcTL_list: ?std.ArrayList(chunks.fcTL) = null;
-            if (config.animation) {
-                fcTL_list = std.ArrayList(chunks.fcTL).init(
-                    allocator,
-                );
-            }
+            //            var fcTL_list: ?std.ArrayList(chunks.fcTL) = null;
+            //            if (config.animation) {
+            //                fcTL_list = std.ArrayList(chunks.fcTL).init(
+            //                    allocator,
+            //                );
+            //            }
 
-            var fdAT_list: ?std.ArrayList(chunks.fdAT) = null;
-            if (config.animation) {
-                fdAT_list = std.ArrayList(chunks.fdAT).init(
-                    allocator,
-                );
-            }
+            //            var fdAT_list: ?std.ArrayList(chunks.fdAT) = null;
+            //            if (config.animation) {
+            //                fdAT_list = std.ArrayList(chunks.fdAT).init(
+            //                    allocator,
+            //                );
+            //            }
 
             return Self{
                 .image_data_list = image_data_list,
@@ -126,8 +126,8 @@ pub fn pngDecoder() type {
                 .zTXt_list = zTXt_list,
                 .iTXt_list = iTXt_list,
                 .sPLT_list = sPLT_list,
-                .fcTL_list = fcTL_list,
-                .fdAT_list = fdAT_list,
+                //    .fcTL_list = fcTL_list,
+                //     .fdAT_list = fdAT_list,
                 .decode_allocator = allocator,
                 .config = config,
             };
@@ -319,12 +319,12 @@ pub fn pngDecoder() type {
                         self.image_data_start = offset;
                     }
                 },
-                @intFromEnum(ChunkTypes.fcTL) => {
-                    if (self.image_data_start == 0) {
-                        self.image_data_start = offset;
-                    }
-                },
-                @intFromEnum(ChunkTypes.fdAT) => {},
+                @intFromEnum(ChunkTypes.fcTL) => return PNGReadError.AnimationNotSupported, //{
+                //if (self.image_data_start == 0) {
+                //   self.image_data_start = offset;
+                //}
+                //},
+                @intFromEnum(ChunkTypes.fdAT) => return PNGReadError.AnimationNotSupported,
                 @intFromEnum(ChunkTypes.IEND) => {
                     if (self.image_data_start == 0) return PNGReadError.MissingIDAT;
                 },
@@ -344,7 +344,7 @@ pub fn pngDecoder() type {
                 @intFromEnum(ChunkTypes.cHRM) => if (self.config.cHRM) handlers.handlecHRM(self, offset + 8),
                 @intFromEnum(ChunkTypes.tIME) => if (self.config.tIME) handlers.handletIME(self, offset + 8),
                 @intFromEnum(ChunkTypes.mDCv) => if (self.config.mDCv) handlers.handlemDCv(self, offset + 8),
-                @intFromEnum(ChunkTypes.acTL) => if (self.config.animation) handlers.handleacTL(self, offset + 8),
+                @intFromEnum(ChunkTypes.acTL) => return PNGReadError.AnimationNotSupported, //if (self.config.animation) handlers.handleacTL(self, offset + 8),
                 @intFromEnum(ChunkTypes.cLLi) => if (self.config.cLLi) handlers.handlecLLi(self, offset + 8),
                 @intFromEnum(ChunkTypes.cICP) => if (self.config.cICP) try handlers.handlecICP(self, offset + 8),
                 @intFromEnum(ChunkTypes.iCCP) => if (self.config.iCCP) try handlers.handleiCCP(self, offset + 8, data_length),
@@ -388,8 +388,8 @@ pub fn pngDecoder() type {
 
             switch (data_type) {
                 @intFromEnum(ChunkTypes.IDAT) => try handlers.handleIDAT(self, offset + 8, data_length),
-                @intFromEnum(ChunkTypes.fcTL) => if (self.config.animation) try handlers.handlefcTL(self, offset + 8),
-                @intFromEnum(ChunkTypes.fdAT) => if (self.config.animation) try handlers.handlefdAT(self, offset + 8, data_length),
+                @intFromEnum(ChunkTypes.fcTL) => return PNGReadError.AnimationNotSupported, //if (self.config.animation) try handlers.handlefcTL(self, offset + 8),
+                @intFromEnum(ChunkTypes.fdAT) => return PNGReadError.AnimationNotSupported, //if (self.config.animation) try handlers.handlefdAT(self, offset + 8, data_length),
                 @intFromEnum(ChunkTypes.IEND) => try handlers.unFilterImageData(self),
 
                 else => {},

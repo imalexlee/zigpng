@@ -8,7 +8,7 @@ test "decode color animated PNG (APNG)" {
     const file_path = "samples/animation/clock.png";
     const pngDecoder = png_decoder.pngDecoder();
     var image = pngDecoder.init(helpers.zigpng_test_allocator, .{
-        .animation = true,
+        //        .animation = true,
     });
     defer image.deinit();
 
@@ -17,6 +17,7 @@ test "decode color animated PNG (APNG)" {
     try image.readImageData();
     try testing.expect(image.IHDR.?.width == 150);
     try testing.expect(image.IHDR.?.height == 150);
+    try testing.expect(image.IHDR.?.bit_depth == 8);
     try testing.expect(image.sample_size == 1);
 
     try testing.expect(image.acTL.?.num_frames == image.fcTL_list.?.items.len);
