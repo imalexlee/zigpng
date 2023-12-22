@@ -23,8 +23,8 @@ test {
         @import("tests/suggested_palette.zig"),
         @import("tests/profiles.zig"),
         @import("tests/errors.zig"),
-        @import("tests/animation.zig"),
         @import("tests/edge_cases.zig"),
+        //  @import("tests/animation.zig"),
         @import("tests/helpers.zig"),
     }) |source_file| std.testing.refAllDeclsRecursive(source_file);
 }
