@@ -12,6 +12,7 @@ pub const PNGReadError = error{
     InvalidCompressionMethod,
     InvalidAnimationSequenceNumber,
     InvalidFilterType,
+    InvalidChunkFound,
     NoImageProvided,
     ImageInformationNotRead,
     ZlibInflateInitError,
