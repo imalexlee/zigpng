@@ -24,35 +24,18 @@ pub fn handleCRC(decoder: *Decoder, crc: *c_ulong, type_offset: u32, data_length
     }
 }
 
+/// uncompresses and unfilters all IDAT data
 pub fn unFilterImageData(decoder: *Decoder) !void {
-    var bits_per_line: u32 = 0;
-    var pixel_len: u32 = 0;
-    // amount of total filter bytes present in entire image
-    var filter_bytes_count: u32 = 0;
+    const bits_per_line = decoder.IHDR.?.width * decoder.sample_size * decoder.IHDR.?.bit_depth;
 
-    if (decoder.fcTL_list != null) {
-        // iterate through all the frame information chunks and sum up the pixel length required for all frames
-        for (decoder.fcTL_list.?.items) |fcTL| {
-            bits_per_line = fcTL.width * decoder.sample_size * decoder.IHDR.?.bit_depth;
-            pixel_len += switch (decoder.IHDR.?.bit_depth) {
-                8 => decoder.sample_size * (fcTL.height * fcTL.width),
-                16 => decoder.sample_size * 2 * (fcTL.height * fcTL.width),
-                else => if (bits_per_line % 8 == 0) bits_per_line / 8 * fcTL.height else (bits_per_line / 8 + 1) * fcTL.height,
-            };
-            filter_bytes_count += fcTL.height;
-        }
-    } else {
-        bits_per_line = decoder.IHDR.?.width * decoder.sample_size * decoder.IHDR.?.bit_depth;
-        pixel_len = switch (decoder.IHDR.?.bit_depth) {
-            8 => decoder.sample_size * (decoder.IHDR.?.height * decoder.IHDR.?.width),
-            16 => decoder.sample_size * 2 * (decoder.IHDR.?.height * decoder.IHDR.?.width),
-            else => if (bits_per_line % 8 == 0) bits_per_line / 8 * decoder.IHDR.?.height else (bits_per_line / 8 + 1) * decoder.IHDR.?.height,
-        };
-        filter_bytes_count = decoder.IHDR.?.height;
-    }
+    const pixel_len = switch (decoder.IHDR.?.bit_depth) {
+        8 => decoder.sample_size * (decoder.IHDR.?.height * decoder.IHDR.?.width),
+        16 => decoder.sample_size * 2 * (decoder.IHDR.?.height * decoder.IHDR.?.width),
+        else => if (bits_per_line % 8 == 0) bits_per_line / 8 * decoder.IHDR.?.height else (bits_per_line / 8 + 1) * decoder.IHDR.?.height,
+    };
 
     // total uncompressed length is all of the pixels + total amount of filter bytes at the beginning of each scanline
-    const uncompressed_len = pixel_len + filter_bytes_count;
+    const uncompressed_len = pixel_len + decoder.IHDR.?.height;
 
     const uncompressed_buf = try decoder.decode_allocator.alloc(u8, uncompressed_len);
     defer decoder.decode_allocator.free(uncompressed_buf);
@@ -60,7 +43,7 @@ pub fn unFilterImageData(decoder: *Decoder) !void {
     var pixel_list = try std.ArrayList(u8).initCapacity(decoder.decode_allocator, pixel_len);
 
     var dest_len: c_ulong = uncompressed_buf.len;
-    var zlib_ret = zlib.uncompress(uncompressed_buf.ptr, &dest_len, decoder.image_data_list.items.ptr, decoder.image_data_list.items.len);
+    const zlib_ret = zlib.uncompress(uncompressed_buf.ptr, &dest_len, decoder.image_data_list.items.ptr, decoder.image_data_list.items.len);
     switch (zlib_ret) {
         zlib.Z_OK => {},
         zlib.Z_MEM_ERROR => return PNGReadError.ZlibMemoryError,
@@ -69,51 +52,25 @@ pub fn unFilterImageData(decoder: *Decoder) !void {
     }
     decoder.image_data_list.clearAndFree();
 
-    var line_width: u32 = 0;
+    const line_width = if (bits_per_line % 8 == 0) bits_per_line / 8 + 1 else (bits_per_line / 8 + 1) + 1;
 
-    if (decoder.fcTL_list != null) {
-        // tracks offset for incrementing frames
-        var frame_offset: u64 = 0;
-        for (decoder.fcTL_list.?.items) |fcTL| {
-            bits_per_line = fcTL.width * decoder.sample_size * decoder.IHDR.?.bit_depth;
-            line_width = if (bits_per_line % 8 == 0) bits_per_line / 8 + 1 else (bits_per_line / 8 + 1) + 1;
-            for (0..fcTL.height) |i| {
-                switch (uncompressed_buf[i * line_width + frame_offset]) {
-                    0 => {},
-                    1 => unfliter.unFilterSub(uncompressed_buf, i, line_width, decoder.sample_size),
-                    2 => unfliter.unFilterUp(uncompressed_buf, i, line_width, decoder.sample_size),
-                    3 => unfliter.unFilterAverage(uncompressed_buf, i, line_width, decoder.sample_size),
-                    4 => unfliter.unFilterPaeth(uncompressed_buf, i, line_width, decoder.sample_size),
-                    else => {
-                        pixel_list.deinit();
-                        return PNGReadError.InvalidFilterType;
-                    },
-                }
-                const start_pos = i * line_width + 1;
-                const end_pos = start_pos + line_width - 1;
-                try pixel_list.appendSlice(uncompressed_buf[start_pos..end_pos]);
-            }
-            frame_offset += line_width * fcTL.height;
+    var start_pos: usize = undefined;
+    var end_pos: usize = undefined;
+    for (0..decoder.IHDR.?.height) |i| {
+        switch (uncompressed_buf[i * line_width]) {
+            0 => {},
+            1 => unfliter.unFilterSub(uncompressed_buf, i, line_width, decoder.sample_size),
+            2 => unfliter.unFilterUp(uncompressed_buf, i, line_width, decoder.sample_size),
+            3 => unfliter.unFilterAverage(uncompressed_buf, i, line_width, decoder.sample_size),
+            4 => unfliter.unFilterPaeth(uncompressed_buf, i, line_width, decoder.sample_size),
+            else => {
+                pixel_list.deinit();
+                return PNGReadError.InvalidFilterType;
+            },
         }
-    } else {
-        line_width = if (bits_per_line % 8 == 0) bits_per_line / 8 + 1 else (bits_per_line / 8 + 1) + 1;
-
-        for (0..decoder.IHDR.?.height) |i| {
-            switch (uncompressed_buf[i * line_width]) {
-                0 => {},
-                1 => unfliter.unFilterSub(uncompressed_buf, i, line_width, decoder.sample_size),
-                2 => unfliter.unFilterUp(uncompressed_buf, i, line_width, decoder.sample_size),
-                3 => unfliter.unFilterAverage(uncompressed_buf, i, line_width, decoder.sample_size),
-                4 => unfliter.unFilterPaeth(uncompressed_buf, i, line_width, decoder.sample_size),
-                else => {
-                    pixel_list.deinit();
-                    return PNGReadError.InvalidFilterType;
-                },
-            }
-            const start_pos = i * line_width + 1;
-            const end_pos = start_pos + line_width - 1;
-            try pixel_list.appendSlice(uncompressed_buf[start_pos..end_pos]);
-        }
+        start_pos = i * line_width + 1;
+        end_pos = start_pos + line_width - 1;
+        try pixel_list.appendSlice(uncompressed_buf[start_pos..end_pos]);
     }
     decoder.pixel_buf = pixel_list.items;
 }
@@ -821,84 +778,88 @@ pub fn handlecLLi(decoder: *Decoder, offset: u32) void {
     };
 }
 
+// NOTE: Animation information for APNG's is currently unsupported until better
+// work can be done on my part to handle them. I tried but I overlooked some things
+// and am deciding to move on to more important png decoding things. thanks! :)
+//
 // ANIMATION INFORMATION
 
-pub fn handleacTL(decoder: *Decoder, offset: u32) void {
-    const num_frames: u32 =
-        @as(u32, decoder.original_img_buffer[offset]) << 24 |
-        @as(u32, decoder.original_img_buffer[offset + 1]) << 16 |
-        @as(u32, decoder.original_img_buffer[offset + 2]) << 8 |
-        @as(u32, decoder.original_img_buffer[offset + 3]);
-    const num_plays: u32 =
-        @as(u32, decoder.original_img_buffer[offset + 4]) << 24 |
-        @as(u32, decoder.original_img_buffer[offset + 5]) << 16 |
-        @as(u32, decoder.original_img_buffer[offset + 6]) << 8 |
-        @as(u32, decoder.original_img_buffer[offset + 7]);
-    decoder.acTL = .{
-        .num_frames = num_frames,
-        .num_plays = num_plays,
-    };
-}
-
-pub fn handlefcTL(decoder: *Decoder, offset: u32) !void {
-    const sequence_number: u32 =
-        @as(u32, decoder.original_img_buffer[offset]) << 24 |
-        @as(u32, decoder.original_img_buffer[offset + 1]) << 16 |
-        @as(u32, decoder.original_img_buffer[offset + 2]) << 8 |
-        @as(u32, decoder.original_img_buffer[offset + 3]);
-    if (sequence_number != decoder.curr_sequence_num) return PNGReadError.InvalidAnimationSequenceNumber;
-    decoder.curr_sequence_num += 1;
-    const width: u32 =
-        @as(u32, decoder.original_img_buffer[offset + 4]) << 24 |
-        @as(u32, decoder.original_img_buffer[offset + 5]) << 16 |
-        @as(u32, decoder.original_img_buffer[offset + 6]) << 8 |
-        @as(u32, decoder.original_img_buffer[offset + 7]);
-    const height: u32 =
-        @as(u32, decoder.original_img_buffer[offset + 8]) << 24 |
-        @as(u32, decoder.original_img_buffer[offset + 9]) << 16 |
-        @as(u32, decoder.original_img_buffer[offset + 10]) << 8 |
-        @as(u32, decoder.original_img_buffer[offset + 11]);
-    const x_offset: u32 =
-        @as(u32, decoder.original_img_buffer[offset + 12]) << 24 |
-        @as(u32, decoder.original_img_buffer[offset + 13]) << 16 |
-        @as(u32, decoder.original_img_buffer[offset + 14]) << 8 |
-        @as(u32, decoder.original_img_buffer[offset + 15]);
-    const y_offset: u32 =
-        @as(u32, decoder.original_img_buffer[offset + 16]) << 24 |
-        @as(u32, decoder.original_img_buffer[offset + 17]) << 16 |
-        @as(u32, decoder.original_img_buffer[offset + 18]) << 8 |
-        @as(u32, decoder.original_img_buffer[offset + 19]);
-    const delay_num: u16 =
-        @as(u16, decoder.original_img_buffer[offset + 20]) << 8 |
-        @as(u16, decoder.original_img_buffer[offset + 21]);
-    const delay_den: u16 =
-        @as(u16, decoder.original_img_buffer[offset + 22]) << 8 |
-        @as(u16, decoder.original_img_buffer[offset + 23]);
-
-    try decoder.fcTL_list.?.append(.{
-        .sequence_number = sequence_number,
-        .width = width,
-        .height = height,
-        .x_offset = x_offset,
-        .y_offset = y_offset,
-        .delay_num = delay_num,
-        .delay_den = delay_den,
-        .dispose_op = decoder.original_img_buffer[offset + 24],
-        .blend_op = decoder.original_img_buffer[offset + 25],
-    });
-}
-
-pub fn handlefdAT(decoder: *Decoder, offset: u32, data_length: u32) !void {
-    const sequence_number: u32 =
-        @as(u32, decoder.original_img_buffer[offset]) << 24 |
-        @as(u32, decoder.original_img_buffer[offset + 1]) << 16 |
-        @as(u32, decoder.original_img_buffer[offset + 2]) << 8 |
-        @as(u32, decoder.original_img_buffer[offset + 3]);
-    if (sequence_number != decoder.curr_sequence_num) return PNGReadError.InvalidAnimationSequenceNumber;
-    decoder.curr_sequence_num += 1;
-    const start_pos = offset + 4;
-    const end_pos = offset + data_length;
-
-    const compressed_buf = decoder.original_img_buffer[start_pos..end_pos];
-    _ = try decoder.image_data_list.appendSlice(compressed_buf);
-}
+// pub fn handleacTL(decoder: *Decoder, offset: u32) void {
+//     const num_frames: u32 =
+//         @as(u32, decoder.original_img_buffer[offset]) << 24 |
+//         @as(u32, decoder.original_img_buffer[offset + 1]) << 16 |
+//         @as(u32, decoder.original_img_buffer[offset + 2]) << 8 |
+//         @as(u32, decoder.original_img_buffer[offset + 3]);
+//     const num_plays: u32 =
+//         @as(u32, decoder.original_img_buffer[offset + 4]) << 24 |
+//         @as(u32, decoder.original_img_buffer[offset + 5]) << 16 |
+//         @as(u32, decoder.original_img_buffer[offset + 6]) << 8 |
+//         @as(u32, decoder.original_img_buffer[offset + 7]);
+//     decoder.acTL = .{
+//         .num_frames = num_frames,
+//         .num_plays = num_plays,
+//     };
+// }
+//
+// pub fn handlefcTL(decoder: *Decoder, offset: u32) !void {
+//     const sequence_number: u32 =
+//         @as(u32, decoder.original_img_buffer[offset]) << 24 |
+//         @as(u32, decoder.original_img_buffer[offset + 1]) << 16 |
+//         @as(u32, decoder.original_img_buffer[offset + 2]) << 8 |
+//         @as(u32, decoder.original_img_buffer[offset + 3]);
+//     if (sequence_number != decoder.curr_sequence_num) return PNGReadError.InvalidAnimationSequenceNumber;
+//     decoder.curr_sequence_num += 1;
+//     const width: u32 =
+//         @as(u32, decoder.original_img_buffer[offset + 4]) << 24 |
+//         @as(u32, decoder.original_img_buffer[offset + 5]) << 16 |
+//         @as(u32, decoder.original_img_buffer[offset + 6]) << 8 |
+//         @as(u32, decoder.original_img_buffer[offset + 7]);
+//     const height: u32 =
+//         @as(u32, decoder.original_img_buffer[offset + 8]) << 24 |
+//         @as(u32, decoder.original_img_buffer[offset + 9]) << 16 |
+//         @as(u32, decoder.original_img_buffer[offset + 10]) << 8 |
+//         @as(u32, decoder.original_img_buffer[offset + 11]);
+//     const x_offset: u32 =
+//         @as(u32, decoder.original_img_buffer[offset + 12]) << 24 |
+//         @as(u32, decoder.original_img_buffer[offset + 13]) << 16 |
+//         @as(u32, decoder.original_img_buffer[offset + 14]) << 8 |
+//         @as(u32, decoder.original_img_buffer[offset + 15]);
+//     const y_offset: u32 =
+//         @as(u32, decoder.original_img_buffer[offset + 16]) << 24 |
+//         @as(u32, decoder.original_img_buffer[offset + 17]) << 16 |
+//         @as(u32, decoder.original_img_buffer[offset + 18]) << 8 |
+//         @as(u32, decoder.original_img_buffer[offset + 19]);
+//     const delay_num: u16 =
+//         @as(u16, decoder.original_img_buffer[offset + 20]) << 8 |
+//         @as(u16, decoder.original_img_buffer[offset + 21]);
+//     const delay_den: u16 =
+//         @as(u16, decoder.original_img_buffer[offset + 22]) << 8 |
+//         @as(u16, decoder.original_img_buffer[offset + 23]);
+//
+//     try decoder.fcTL_list.?.append(.{
+//         .sequence_number = sequence_number,
+//         .width = width,
+//         .height = height,
+//         .x_offset = x_offset,
+//         .y_offset = y_offset,
+//         .delay_num = delay_num,
+//         .delay_den = delay_den,
+//         .dispose_op = decoder.original_img_buffer[offset + 24],
+//         .blend_op = decoder.original_img_buffer[offset + 25],
+//     });
+// }
+//
+// pub fn handlefdAT(decoder: *Decoder, offset: u32, data_length: u32) !void {
+//     const sequence_number: u32 =
+//         @as(u32, decoder.original_img_buffer[offset]) << 24 |
+//         @as(u32, decoder.original_img_buffer[offset + 1]) << 16 |
+//         @as(u32, decoder.original_img_buffer[offset + 2]) << 8 |
+//         @as(u32, decoder.original_img_buffer[offset + 3]);
+//     if (sequence_number != decoder.curr_sequence_num) return PNGReadError.InvalidAnimationSequenceNumber;
+//     decoder.curr_sequence_num += 1;
+//     const start_pos = offset + 4;
+//     const end_pos = offset + data_length;
+//
+//     const compressed_buf = decoder.original_img_buffer[start_pos..end_pos];
+//     _ = try decoder.image_data_list.appendSlice(compressed_buf);
+// }

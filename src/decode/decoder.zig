@@ -29,7 +29,6 @@ const DecoderConfig = struct {
     cICP: bool = false,
     mDCv: bool = false,
     cLLi: bool = false,
-    //    animation: bool = false,
 };
 
 pub fn pngDecoder() type {
@@ -106,28 +105,12 @@ pub fn pngDecoder() type {
                 );
             }
 
-            //            var fcTL_list: ?std.ArrayList(chunks.fcTL) = null;
-            //            if (config.animation) {
-            //                fcTL_list = std.ArrayList(chunks.fcTL).init(
-            //                    allocator,
-            //                );
-            //            }
-
-            //            var fdAT_list: ?std.ArrayList(chunks.fdAT) = null;
-            //            if (config.animation) {
-            //                fdAT_list = std.ArrayList(chunks.fdAT).init(
-            //                    allocator,
-            //                );
-            //            }
-
             return Self{
                 .image_data_list = image_data_list,
                 .tEXt_list = tEXt_list,
                 .zTXt_list = zTXt_list,
                 .iTXt_list = iTXt_list,
                 .sPLT_list = sPLT_list,
-                //    .fcTL_list = fcTL_list,
-                //     .fdAT_list = fdAT_list,
                 .decode_allocator = allocator,
                 .config = config,
             };
@@ -311,32 +294,28 @@ pub fn pngDecoder() type {
             }
 
             switch (data_type) {
-                // if we come across image data, set the start point to be here
-                // if the start point isn't at zero (we already found image data),
                 // continue reading info while ignoring image data
                 @intFromEnum(ChunkTypes.IDAT) => {
                     if (self.image_data_start == 0) {
                         self.image_data_start = offset;
                     }
                 },
-                @intFromEnum(ChunkTypes.fcTL) => return PNGReadError.AnimationNotSupported, //{
-                //if (self.image_data_start == 0) {
-                //   self.image_data_start = offset;
-                //}
-                //},
-                @intFromEnum(ChunkTypes.fdAT) => return PNGReadError.AnimationNotSupported,
                 @intFromEnum(ChunkTypes.IEND) => {
                     if (self.image_data_start == 0) return PNGReadError.MissingIDAT;
                 },
                 @intFromEnum(ChunkTypes.IHDR) => try handlers.handleIHDR(self),
                 @intFromEnum(ChunkTypes.PLTE) => try handlers.handlePLTE(self, offset + 8, data_length),
                 @intFromEnum(ChunkTypes.tRNS) => try handlers.handletRNS(self, offset + 8, data_length),
+
                 @intFromEnum(ChunkTypes.eXIf) => if (self.config.eXIf) handlers.handleeXIf(self, offset + 8, data_length),
                 @intFromEnum(ChunkTypes.hIST) => if (self.config.hIST) try handlers.handlehIST(self, offset + 8, data_length),
                 @intFromEnum(ChunkTypes.tEXt) => if (self.config.tEXt) try handlers.handletEXt(self, offset + 8, data_length),
                 @intFromEnum(ChunkTypes.zTXt) => if (self.config.zTXt) try handlers.handlezTXt(self, offset + 8, data_length),
                 @intFromEnum(ChunkTypes.iTXt) => if (self.config.iTXt) try handlers.handleiTXt(self, offset + 8, data_length),
                 @intFromEnum(ChunkTypes.sPLT) => if (self.config.sPLT) try handlers.handlesPLT(self, offset + 8, data_length),
+                @intFromEnum(ChunkTypes.cICP) => if (self.config.cICP) try handlers.handlecICP(self, offset + 8),
+                @intFromEnum(ChunkTypes.iCCP) => if (self.config.iCCP) try handlers.handleiCCP(self, offset + 8, data_length),
+
                 @intFromEnum(ChunkTypes.pHYs) => if (self.config.pHYS) handlers.handlepHYs(self, offset + 8),
                 @intFromEnum(ChunkTypes.bKGD) => if (self.config.bKGD) handlers.handlebKGD(self, offset + 8),
                 @intFromEnum(ChunkTypes.sRGB) => if (self.config.sRGB) handlers.handlesRGB(self, offset + 8),
@@ -344,12 +323,13 @@ pub fn pngDecoder() type {
                 @intFromEnum(ChunkTypes.cHRM) => if (self.config.cHRM) handlers.handlecHRM(self, offset + 8),
                 @intFromEnum(ChunkTypes.tIME) => if (self.config.tIME) handlers.handletIME(self, offset + 8),
                 @intFromEnum(ChunkTypes.mDCv) => if (self.config.mDCv) handlers.handlemDCv(self, offset + 8),
-                @intFromEnum(ChunkTypes.acTL) => return PNGReadError.AnimationNotSupported, //if (self.config.animation) handlers.handleacTL(self, offset + 8),
                 @intFromEnum(ChunkTypes.cLLi) => if (self.config.cLLi) handlers.handlecLLi(self, offset + 8),
-                @intFromEnum(ChunkTypes.cICP) => if (self.config.cICP) try handlers.handlecICP(self, offset + 8),
-                @intFromEnum(ChunkTypes.iCCP) => if (self.config.iCCP) try handlers.handleiCCP(self, offset + 8, data_length),
                 @intFromEnum(ChunkTypes.sBIT) => if (self.config.sBIT) handlers.handlesBIT(self, offset + 8),
-                else => {},
+
+                @intFromEnum(ChunkTypes.fcTL) => return PNGReadError.AnimationNotSupported,
+                @intFromEnum(ChunkTypes.fdAT) => return PNGReadError.AnimationNotSupported,
+                @intFromEnum(ChunkTypes.acTL) => return PNGReadError.AnimationNotSupported,
+                else => return PNGReadError.InvalidChunkFound,
             }
             // 4 byte length + 4 byte type + {{data_length}} data + 4 byte crc
             return data_length + 12;
@@ -388,11 +368,9 @@ pub fn pngDecoder() type {
 
             switch (data_type) {
                 @intFromEnum(ChunkTypes.IDAT) => try handlers.handleIDAT(self, offset + 8, data_length),
-                @intFromEnum(ChunkTypes.fcTL) => return PNGReadError.AnimationNotSupported, //if (self.config.animation) try handlers.handlefcTL(self, offset + 8),
-                @intFromEnum(ChunkTypes.fdAT) => return PNGReadError.AnimationNotSupported, //if (self.config.animation) try handlers.handlefdAT(self, offset + 8, data_length),
                 @intFromEnum(ChunkTypes.IEND) => try handlers.unFilterImageData(self),
 
-                else => {},
+                else => return PNGReadError.InvalidChunkFound,
             }
             return data_length + 12;
         }

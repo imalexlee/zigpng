@@ -183,3 +183,19 @@ test "Interlaced Image (Not supported)" {
         result,
     );
 }
+
+test "Animated PNG (Not supported)" {
+    const file_path = "samples/animation/clock.png";
+    const pngDecoder = png_decoder.pngDecoder();
+    var image = pngDecoder.init(helpers.zigpng_test_allocator, .{});
+    defer image.deinit();
+
+    try image.loadFileFromPath(file_path, .{});
+
+    var result = image.readInfo();
+
+    try testing.expectError(
+        PNGReadError.AnimationNotSupported,
+        result,
+    );
+}
