@@ -13,7 +13,7 @@ test "Incorrect PNG signature" {
 
     try image.loadFileFromPath(file_path, .{});
 
-    var result = image.readInfo();
+    const result = image.readInfo();
 
     try testing.expectError(
         PNGReadError.InvalidPNGSignature,
@@ -28,7 +28,7 @@ test "Added Carriage Return byte in PNG signature" {
 
     try image.loadFileFromPath(file_path, .{});
 
-    var result = image.readInfo();
+    const result = image.readInfo();
 
     try testing.expectError(
         PNGReadError.InvalidPNGSignature,
@@ -44,7 +44,7 @@ test "Incorrect.IHDR.? checksum" {
 
     try image.loadFileFromPath(file_path, .{});
 
-    var result = image.readInfo();
+    const result = image.readInfo();
 
     try testing.expectError(
         PNGReadError.InvalidChecksum,
@@ -60,7 +60,7 @@ test "image with color type 1" {
 
     try image.loadFileFromPath(file_path, .{});
 
-    var result = image.readInfo();
+    const result = image.readInfo();
 
     try testing.expectError(
         PNGReadError.InvalidColorType,
@@ -76,7 +76,7 @@ test "image with color type 9" {
 
     try image.loadFileFromPath(file_path, .{});
 
-    var result = image.readInfo();
+    const result = image.readInfo();
 
     try testing.expectError(
         PNGReadError.InvalidColorType,
@@ -92,7 +92,7 @@ test "image with bit depth of 1" {
 
     try image.loadFileFromPath(file_path, .{});
 
-    var result = image.readInfo();
+    const result = image.readInfo();
 
     try testing.expectError(
         PNGReadError.InvalidBitDepth,
@@ -108,7 +108,7 @@ test "image with bit depth of 99" {
 
     try image.loadFileFromPath(file_path, .{});
 
-    var result = image.readInfo();
+    const result = image.readInfo();
 
     try testing.expectError(
         PNGReadError.InvalidBitDepth,
@@ -124,7 +124,7 @@ test "image with missing IDAT chunk" {
 
     try image.loadFileFromPath(file_path, .{});
 
-    var result = image.readInfo();
+    const result = image.readInfo();
 
     try testing.expectError(
         PNGReadError.MissingIDAT,
@@ -141,7 +141,7 @@ test "image with incorrect IDAT checksum" {
     try image.loadFileFromPath(file_path, .{});
 
     try image.readInfo();
-    var result = image.readImageData();
+    const result = image.readImageData();
 
     try testing.expectError(
         PNGReadError.InvalidChecksum,
@@ -176,7 +176,7 @@ test "Interlaced Image (Not supported)" {
 
     try image.loadFileFromPath(file_path, .{});
 
-    var result = image.readInfo();
+    const result = image.readInfo();
 
     try testing.expectError(
         PNGReadError.InterlacingNotSupported,
@@ -192,7 +192,7 @@ test "Animated PNG (Not supported)" {
 
     try image.loadFileFromPath(file_path, .{});
 
-    var result = image.readInfo();
+    const result = image.readInfo();
 
     try testing.expectError(
         PNGReadError.AnimationNotSupported,

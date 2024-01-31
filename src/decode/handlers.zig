@@ -11,7 +11,7 @@ const PNGReadError = errors.PNGReadError;
 // NON CHUNKS
 
 pub fn handleCRC(decoder: *Decoder, crc: *c_ulong, type_offset: u32, data_length: u32) PNGReadError!void {
-    var end_pos = type_offset + data_length + 4;
+    const end_pos = type_offset + data_length + 4;
     const buffer = decoder.original_img_buffer[type_offset..end_pos];
     crc.* = zlib.crc32(crc.*, buffer.ptr, data_length + 4);
     const original_crc: u32 =
@@ -104,7 +104,7 @@ pub fn handleIHDR(decoder: *Decoder) !void {
         else => return PNGReadError.InvalidInterlaceMethod,
     }
 
-    var sample_size: u8 = switch (color_type) {
+    const sample_size: u8 = switch (color_type) {
         // match values represent color type
         // 1: greyscale luminance
         0 => 1,
@@ -232,8 +232,8 @@ pub fn handlezTXt(decoder: *Decoder, offset: u32, data_length: u32) !void {
     compression_method = decoder.original_img_buffer[keyword_end + 1];
     if (compression_method != 0) return PNGReadError.InvalidCompressionMethod;
 
-    var text_start = offset + null_pos + 2;
-    var text_end = offset + data_length;
+    const text_start = offset + null_pos + 2;
+    const text_end = offset + data_length;
 
     var strm: zlib.z_stream = .{
         .avail_in = 0,
@@ -422,7 +422,7 @@ pub fn handlehIST(decoder: *Decoder, offset: u32, data_length: u32) !void {
     var frequencies_slice = try decoder.decode_allocator.alloc(u16, hist_len);
 
     for (0..hist_len) |i| {
-        var frequency: u16 =
+        const frequency: u16 =
             @as(u16, decoder.original_img_buffer[offset + i]) << 8 |
             @as(u16, decoder.original_img_buffer[offset + i + 1]);
         frequencies_slice[i] = frequency;
@@ -461,7 +461,7 @@ pub fn handlesPLT(decoder: *Decoder, offset: u32, data_length: u32) !void {
 
     if (sample_depth != 8 and sample_depth != 16) return PNGReadError.InvalidsPLTSampleDeth;
     const palette_start_abs = null_one_abs + 2;
-    var palette_length_bytes = end_pos - palette_start_abs;
+    const palette_length_bytes = end_pos - palette_start_abs;
 
     if (sample_depth == 8 and palette_length_bytes % 6 != 0) return PNGReadError.InvalidsPLT;
     if (sample_depth == 16 and palette_length_bytes % 10 != 0) return PNGReadError.InvalidsPLT;

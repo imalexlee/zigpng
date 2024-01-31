@@ -77,7 +77,7 @@ pub fn pngDecoder() type {
         ///
         /// decode_allocator used by zlib to store just the decompressed IDAT chunk data with filter byte intact at scanline start
         pub fn init(allocator: std.mem.Allocator, config: DecoderConfig) Self {
-            var image_data_list = std.ArrayList(u8).init(
+            const image_data_list = std.ArrayList(u8).init(
                 allocator,
             );
             var tEXt_list: ?std.ArrayList(chunks.tEXt) = null;
@@ -263,7 +263,7 @@ pub fn pngDecoder() type {
             // start after the PNG signature, at byte index 8
             var offset: u32 = 8;
             while (offset < self.file_size - 11) {
-                var temp: u32 = try self.readInfoChunk(offset);
+                const temp: u32 = try self.readInfoChunk(offset);
                 offset += temp;
             }
         }

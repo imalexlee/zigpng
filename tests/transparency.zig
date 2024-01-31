@@ -217,9 +217,9 @@ test "decode paletted transparent with white background" {
     var white_idx: u32 = undefined;
     var i: u32 = 0;
     while (i < image.PLTE.?.sections.len) {
-        var red: u8 = image.PLTE.?.sections[i];
-        var green: u8 = image.PLTE.?.sections[i + 1];
-        var blue: u8 = image.PLTE.?.sections[i + 2];
+        const red: u8 = image.PLTE.?.sections[i];
+        const green: u8 = image.PLTE.?.sections[i + 1];
+        const blue: u8 = image.PLTE.?.sections[i + 2];
 
         if (red == 255 and green == 255 and blue == 255) {
             white_idx = i / 3;
@@ -259,9 +259,9 @@ test "decode paletted transparent with yellow background" {
     var yellow_idx: u32 = undefined;
     var i: u32 = 0;
     while (i < image.PLTE.?.sections.len) {
-        var red: u8 = image.PLTE.?.sections[i];
-        var green: u8 = image.PLTE.?.sections[i + 1];
-        var blue: u8 = image.PLTE.?.sections[i + 2];
+        const red: u8 = image.PLTE.?.sections[i];
+        const green: u8 = image.PLTE.?.sections[i + 1];
+        const blue: u8 = image.PLTE.?.sections[i + 2];
 
         if (red == 255 and green == 255 and blue == 0) {
             yellow_idx = i / 3;
