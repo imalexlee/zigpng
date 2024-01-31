@@ -10,7 +10,7 @@ test "attempting to read image information when no image was loaded in" {
     var image = pngDecoder.init(helpers.zigpng_test_allocator, .{});
     defer image.deinit();
 
-    var result = image.readInfo();
+    const result = image.readInfo();
 
     try testing.expectError(
         PNGReadError.NoImageProvided,
@@ -23,7 +23,7 @@ test "attempting to read image data when no image was loaded in" {
     var image = pngDecoder.init(helpers.zigpng_test_allocator, .{});
     defer image.deinit();
 
-    var result = image.readImageData();
+    const result = image.readImageData();
 
     try testing.expectError(
         PNGReadError.NoImageProvided,
@@ -39,7 +39,7 @@ test "call readImageData before readInfo" {
 
     try image.loadFileFromPath(file_path, .{});
 
-    var result = image.readImageData();
+    const result = image.readImageData();
     try image.readInfo();
 
     try testing.expectError(

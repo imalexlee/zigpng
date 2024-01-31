@@ -1,5 +1,6 @@
 // http://www.libpng.org/pub/png/spec/iso/index-object.html
 
+// using binary literals for some emphasis on how the chunk name will look in the png
 pub const ChunkTypes = enum(u32) {
     IHDR = 0b01001001_01001000_01000100_01010010,
     IDAT = 0b01001001_01000100_01000001_01010100,
